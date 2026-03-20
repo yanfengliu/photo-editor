@@ -1,4 +1,6 @@
 struct Params {
+    temperature: f32,
+    tint: f32,
     exposure: f32,
     contrast: f32,
     highlights: f32,
@@ -7,10 +9,12 @@ struct Params {
     blacks: f32,
     saturation: f32,
     vibrance: f32,
+    dehaze: f32,
+    _pad0: f32,
 }
 
-@group(0) @binding(0) var input_tex: texture_storage_2d<rgba32float, read>;
-@group(0) @binding(1) var output_tex: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(0) var input_tex: texture_2d<f32>;
+@group(0) @binding(1) var output_tex: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(2) var<uniform> params: Params;
 
 @compute @workgroup_size(16, 16)
@@ -18,7 +22,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let dims = textureDimensions(input_tex);
     if (gid.x >= dims.x || gid.y >= dims.y) { return; }
     let coord = vec2<i32>(i32(gid.x), i32(gid.y));
-    var pixel = textureLoad(input_tex, coord);
+    var pixel = textureLoad(input_tex, coord, 0);
+
+    let temp_shift = (params.temperature - 6500.0) / 6500.0;
+    pixel.r *= 1.0 + temp_shift * 0.1;
+    pixel.b *= 1.0 - temp_shift * 0.1;
+    pixel.g *= 1.0 + params.tint / 150.0 * 0.05;
 
     // Exposure (EV stops)
     let exp_mult = pow(2.0, params.exposure);
@@ -70,6 +79,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let cur_sat = select(0.0, (max_c - min_c) / max_c, max_c > 0.0);
     let vib_f = 1.0 + params.vibrance / 100.0 * (1.0 - cur_sat);
     pixel = vec4<f32>(mix(vec3<f32>(gray), pixel.rgb, vib_f), pixel.a);
+
+    if (abs(params.dehaze) > 0.01) {
+        let atmosphere = min(pixel.r, min(pixel.g, pixel.b));
+        let strength = params.dehaze / 100.0;
+        pixel = vec4<f32>(pixel.rgb + (pixel.rgb - atmosphere) * strength, pixel.a);
+    }
 
     // Clamp
     pixel = clamp(pixel, vec4<f32>(0.0), vec4<f32>(1.0));

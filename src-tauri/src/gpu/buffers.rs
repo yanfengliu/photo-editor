@@ -10,13 +10,13 @@ pub struct TexturePair {
 }
 
 impl TexturePair {
-    pub fn new(device: &Device, width: u32, height: u32) -> Self {
+    pub fn new(device: &Device, width: u32, height: u32, format: TextureFormat) -> Self {
         let desc = TextureDescriptor {
             label: Some("Processing Texture"),
             size: Extent3d { width, height, depth_or_array_layers: 1 },
             mip_level_count: 1, sample_count: 1, dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba32Float,
-            usage: TextureUsages::STORAGE_BINDING | TextureUsages::COPY_SRC | TextureUsages::COPY_DST,
+            format,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::STORAGE_BINDING | TextureUsages::COPY_SRC | TextureUsages::COPY_DST,
             view_formats: &[],
         };
         let input = device.create_texture(&desc);

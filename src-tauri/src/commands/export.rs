@@ -33,9 +33,16 @@ pub async fn export_image(
         }
     };
 
-    let pixels = crate::imaging::loader::load_full(&file_path)
+    let image = crate::imaging::loader::load_full_rgba(&file_path)
         .map_err(|e| e.to_string())?;
-    let processed = crate::gpu::pipeline::apply_edits_cpu(&pixels, &edit_params);
+    let gpu = state.gpu.lock().map_err(|e| e.to_string())?;
+    let processed = crate::gpu::pipeline::apply_edits_with_backend(
+        gpu.as_ref(),
+        &image.data,
+        image.width,
+        image.height,
+        &edit_params,
+    );
 
     crate::imaging::export::export_pixels(
         &processed,
@@ -86,9 +93,16 @@ pub async fn batch_export(
             }
         };
 
-        let pixels = crate::imaging::loader::load_full(&file_path)
+        let image = crate::imaging::loader::load_full_rgba(&file_path)
             .map_err(|e| e.to_string())?;
-        let processed = crate::gpu::pipeline::apply_edits_cpu(&pixels, &edit_params);
+        let gpu = state.gpu.lock().map_err(|e| e.to_string())?;
+        let processed = crate::gpu::pipeline::apply_edits_with_backend(
+            gpu.as_ref(),
+            &image.data,
+            image.width,
+            image.height,
+            &edit_params,
+        );
 
         crate::imaging::export::export_pixels(
             &processed,

@@ -62,15 +62,14 @@ pub async fn apply_edits(
     let max_size = preview_size.unwrap_or(2048);
     let preview = get_cached_preview(&state, &image_id, &file_path, max_size)?;
 
-    // Try GPU processing
     let gpu = state.gpu.lock().map_err(|e| e.to_string())?;
-    let result = if let Some(ref _gpu_ctx) = *gpu {
-        // GPU pipeline would process here
-        // For now, apply CPU fallback
-        crate::gpu::pipeline::apply_edits_cpu(preview.data.as_ref(), &params)
-    } else {
-        crate::gpu::pipeline::apply_edits_cpu(preview.data.as_ref(), &params)
-    };
+    let result = crate::gpu::pipeline::apply_edits_with_backend(
+        gpu.as_ref(),
+        preview.data.as_ref(),
+        preview.width,
+        preview.height,
+        &params,
+    );
 
     Ok(PreviewImagePayload {
         data: result,

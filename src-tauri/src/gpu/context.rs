@@ -1,8 +1,11 @@
+use crate::gpu::passes::basic_adjustments::BasicAdjustmentsPass;
+
 pub struct GpuContext {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub adapter_name: String,
     pub backend: String,
+    pub basic_adjustments_pass: BasicAdjustmentsPass,
 }
 
 impl GpuContext {
@@ -25,7 +28,8 @@ impl GpuContext {
             required_limits: wgpu::Limits::default(),
             memory_hints: wgpu::MemoryHints::Performance,
         }, None).await?;
+        let basic_adjustments_pass = BasicAdjustmentsPass::new(&device);
         log::info!("GPU initialized: {} ({})", adapter_name, backend);
-        Ok(Self { device, queue, adapter_name, backend })
+        Ok(Self { device, queue, adapter_name, backend, basic_adjustments_pass })
     }
 }

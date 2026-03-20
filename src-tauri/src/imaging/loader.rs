@@ -27,6 +27,10 @@ pub fn load_preview(file_path: &str, max_size: u32) -> Result<LoadedRgbaImage, B
 }
 
 pub fn load_full(file_path: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    Ok(load_full_rgba(file_path)?.data)
+}
+
+pub fn load_full_rgba(file_path: &str) -> Result<LoadedRgbaImage, Box<dyn std::error::Error>> {
     let path = Path::new(file_path);
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
     let img = if is_raw(&ext) {
@@ -34,7 +38,13 @@ pub fn load_full(file_path: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>>
     } else {
         image::open(path)?
     };
-    Ok(img.to_rgba8().into_raw())
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    Ok(LoadedRgbaImage {
+        data: rgba.into_raw(),
+        width,
+        height,
+    })
 }
 
 fn is_raw(ext: &str) -> bool {

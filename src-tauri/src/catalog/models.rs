@@ -63,7 +63,7 @@ pub struct CurvePoint {
     pub y: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EditParams {
     pub exposure: f32,
     pub contrast: f32,
