@@ -1,5 +1,4 @@
 use std::path::Path;
-use image::GenericImageView;
 
 pub fn load_preview(file_path: &str, max_size: u32) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let path = Path::new(file_path);

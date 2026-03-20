@@ -1,6 +1,6 @@
 use tauri::State;
 use crate::state::AppState;
-use crate::catalog::models::{ImageRecord, CollectionRecord, ImportProgress};
+use crate::catalog::models::{ImageRecord, CollectionRecord};
 use crate::catalog::import;
 
 #[tauri::command]

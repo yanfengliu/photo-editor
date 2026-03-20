@@ -83,7 +83,7 @@ pub async fn save_snapshot(
 #[tauri::command]
 pub async fn load_snapshot(
     state: State<'_, AppState>,
-    image_id: String,
+    _image_id: String,
     snapshot_id: String,
 ) -> Result<EditParams, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;

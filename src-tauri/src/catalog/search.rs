@@ -1,4 +1,3 @@
-use rusqlite::params;
 use crate::catalog::db::Database;
 use crate::catalog::models::ImageRecord;
 

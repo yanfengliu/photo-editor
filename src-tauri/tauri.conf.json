@@ -9,7 +9,6 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "title": "Photo Editor",
     "windows": [
       {
         "title": "Photo Editor",
@@ -24,10 +23,5 @@
       "csp": null
     }
   },
-  "plugins": {
-    "dialog": {},
-    "fs": {
-      "scope": ["**"]
-    }
-  }
+  "plugins": {}
 }

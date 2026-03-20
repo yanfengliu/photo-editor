@@ -1,4 +1,4 @@
-use rusqlite::{Connection, params};
+use rusqlite::Connection;
 use std::path::PathBuf;
 
 pub struct Database {
@@ -142,6 +142,7 @@ fn dirs_next_data() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::params;
 
     fn make_test_db() -> Database {
         let conn = Connection::open_in_memory().unwrap();
