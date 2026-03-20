@@ -63,28 +63,6 @@ export const DEFAULT_EDIT_PARAMS: EditParams = {
   hsl_luminance: [0, 0, 0, 0, 0, 0, 0, 0],
 };
 
-export interface HistoryEntry {
-  id: string;
-  image_id: string;
-  action: string;
-  params_json: string;
-  created_at: string;
-}
-
-export interface SnapshotRecord {
-  id: string;
-  image_id: string;
-  name: string;
-  params_json: string;
-  created_at: string;
-}
-
-export interface PreviewImagePayload {
-  data: number[];
-  width: number;
-  height: number;
-}
-
 export const HSL_CHANNELS = [
   "Red",
   "Orange",

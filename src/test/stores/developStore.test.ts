@@ -17,12 +17,9 @@ vi.mock("../../api/processing", () => {
   };
   return {
     getEditParams: vi.fn().mockResolvedValue({ ...d }),
-    applyEdits: vi.fn().mockResolvedValue({ data: [0, 0, 0, 255], width: 1, height: 1 }),
+    applyEdits: vi.fn().mockResolvedValue({ data: new Uint8Array([0, 0, 0, 255]), width: 1, height: 1 }),
     saveEditParams: vi.fn().mockResolvedValue(undefined),
     resetEdits: vi.fn().mockResolvedValue({ ...d }),
-    saveSnapshot: vi.fn().mockResolvedValue(undefined),
-    loadSnapshot: vi.fn().mockResolvedValue({ ...d }),
-    getHistory: vi.fn().mockResolvedValue([]),
     copyEdits: vi.fn().mockResolvedValue(undefined),
     pasteEdits: vi.fn().mockResolvedValue({ ...d }),
   };
@@ -39,8 +36,6 @@ describe("developStore", () => {
       editParams: { ...DEFAULT_EDIT_PARAMS },
       originalParams: { ...DEFAULT_EDIT_PARAMS },
       persistedParams: { ...DEFAULT_EDIT_PARAMS },
-      history: [],
-      snapshots: [],
       undoStack: [],
       redoStack: [],
       isProcessing: false,
@@ -156,8 +151,8 @@ describe("developStore", () => {
   it("should keep the latest preview when earlier apply requests resolve later", async () => {
     await useDevelopStore.getState().setCurrentImage("img-1");
 
-    let resolveFirst!: (value: { data: number[]; width: number; height: number }) => void;
-    let resolveSecond!: (value: { data: number[]; width: number; height: number }) => void;
+    let resolveFirst!: (value: { data: Uint8Array; width: number; height: number }) => void;
+    let resolveSecond!: (value: { data: Uint8Array; width: number; height: number }) => void;
 
     vi.mocked(processingApi.applyEdits)
       .mockImplementationOnce(
@@ -179,10 +174,10 @@ describe("developStore", () => {
     useDevelopStore.getState().updateParam("exposure", 2);
     const secondRequest = useDevelopStore.getState().applyEdits(2048);
 
-    resolveSecond({ data: [2, 0, 0, 255], width: 1, height: 1 });
+    resolveSecond({ data: new Uint8Array([2, 0, 0, 255]), width: 1, height: 1 });
     await secondRequest;
 
-    resolveFirst({ data: [1, 0, 0, 255], width: 1, height: 1 });
+    resolveFirst({ data: new Uint8Array([1, 0, 0, 255]), width: 1, height: 1 });
     await firstRequest;
 
     expect(useDevelopStore.getState().previewData).toEqual(new Uint8Array([2, 0, 0, 255]));

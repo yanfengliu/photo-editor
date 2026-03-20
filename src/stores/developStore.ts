@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { EditParams, HistoryEntry, SnapshotRecord } from "../types/develop";
+import type { EditParams } from "../types/develop";
 import { DEFAULT_EDIT_PARAMS } from "../types/develop";
 import * as processingApi from "../api/processing";
 
@@ -11,8 +11,6 @@ interface DevelopState {
   editParams: EditParams;
   originalParams: EditParams;
   persistedParams: EditParams;
-  history: HistoryEntry[];
-  snapshots: SnapshotRecord[];
   undoStack: EditParams[];
   redoStack: EditParams[];
   isProcessing: boolean;
@@ -28,9 +26,6 @@ interface DevelopState {
   resetEdits: () => Promise<void>;
   undo: () => void;
   redo: () => void;
-  saveSnapshot: (name: string) => Promise<void>;
-  loadSnapshot: (snapshotId: string) => Promise<void>;
-  loadHistory: () => Promise<void>;
   copyEdits: () => Promise<void>;
   pasteEdits: () => Promise<void>;
   setPreviewData: (data: Uint8Array, width: number, height: number) => void;
@@ -43,8 +38,6 @@ export const useDevelopStore = create<DevelopState>((set, get) => ({
   editParams: { ...DEFAULT_EDIT_PARAMS },
   originalParams: { ...DEFAULT_EDIT_PARAMS },
   persistedParams: { ...DEFAULT_EDIT_PARAMS },
-  history: [],
-  snapshots: [],
   undoStack: [],
   redoStack: [],
   isProcessing: false,
@@ -110,7 +103,7 @@ export const useDevelopStore = create<DevelopState>((set, get) => ({
       );
       if (requestId !== latestPreviewRequestId) return;
       set({
-        previewData: new Uint8Array(result.data),
+        previewData: result.data,
         previewWidth: result.width,
         previewHeight: result.height,
         isProcessing: false,
@@ -170,26 +163,6 @@ export const useDevelopStore = create<DevelopState>((set, get) => ({
       undoStack: [...get().undoStack, { ...editParams }],
       editParams: next,
     });
-  },
-
-  saveSnapshot: async (name) => {
-    const { currentImageId } = get();
-    if (!currentImageId) return;
-    await processingApi.saveSnapshot(currentImageId, name);
-  },
-
-  loadSnapshot: async (snapshotId) => {
-    const { currentImageId } = get();
-    if (!currentImageId) return;
-    const params = await processingApi.loadSnapshot(currentImageId, snapshotId);
-    set({ editParams: params });
-  },
-
-  loadHistory: async () => {
-    const { currentImageId } = get();
-    if (!currentImageId) return;
-    const history = await processingApi.getHistory(currentImageId);
-    set({ history });
   },
 
   copyEdits: async () => {

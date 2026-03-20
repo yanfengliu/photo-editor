@@ -1,13 +1,7 @@
 use tauri::State;
+use tauri::ipc::Response;
 use crate::state::AppState;
 use crate::catalog::models::EditParams;
-
-#[derive(serde::Serialize)]
-pub struct PreviewImagePayload {
-    pub data: Vec<u8>,
-    pub width: u32,
-    pub height: u32,
-}
 
 fn get_cached_preview(
     state: &AppState,
@@ -44,38 +38,34 @@ fn get_cached_preview(
     Ok(cached)
 }
 
+/// Returns binary response: [width: u32 LE][height: u32 LE][RGBA pixel data...]
 #[tauri::command]
 pub async fn apply_edits(
     state: State<'_, AppState>,
     image_id: String,
     params: EditParams,
     preview_size: Option<u32>,
-) -> Result<PreviewImagePayload, String> {
-    // Load the image
-    let file_path = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        let record = crate::catalog::queries::get_image_by_id(&db, &image_id)
-            .map_err(|e| e.to_string())?;
-        record.file_path.clone()
-    };
+) -> Result<Response, String> {
+    let file_path = state.get_image_file_path(&image_id)?;
 
     let max_size = preview_size.unwrap_or(2048);
     let preview = get_cached_preview(&state, &image_id, &file_path, max_size)?;
 
-    let gpu = state.gpu.lock().map_err(|e| e.to_string())?;
+    let mut gpu = state.gpu.lock().map_err(|e| e.to_string())?;
     let result = crate::gpu::pipeline::apply_edits_with_backend(
-        gpu.as_ref(),
+        gpu.as_mut(),
         preview.data.as_ref(),
         preview.width,
         preview.height,
         &params,
     );
 
-    Ok(PreviewImagePayload {
-        data: result,
-        width: preview.width,
-        height: preview.height,
-    })
+    // Pack as binary: 8-byte header (width + height as u32 LE) + raw RGBA bytes
+    let mut buf = Vec::with_capacity(8 + result.len());
+    buf.extend_from_slice(&preview.width.to_le_bytes());
+    buf.extend_from_slice(&preview.height.to_le_bytes());
+    buf.extend_from_slice(&result);
+    Ok(Response::new(buf))
 }
 
 #[tauri::command]
@@ -95,13 +85,7 @@ pub async fn get_edit_params(
     state: State<'_, AppState>,
     image_id: String,
 ) -> Result<EditParams, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let record = crate::catalog::queries::get_image_by_id(&db, &image_id)
-        .map_err(|e| e.to_string())?;
-    match record.edit_params {
-        Some(json) => serde_json::from_str(&json).map_err(|e| e.to_string()),
-        None => Ok(EditParams::default()),
-    }
+    state.get_image_edit_params(&image_id)
 }
 
 #[tauri::command]
@@ -177,7 +161,8 @@ pub async fn paste_edits(
     drop(clipboard);
 
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    crate::catalog::queries::save_edit_params(&db, &image_id, &serde_json::to_string(&params).unwrap())
+    let params_json = serde_json::to_string(&params).map_err(|e| e.to_string())?;
+    crate::catalog::queries::save_edit_params(&db, &image_id, &params_json)
         .map_err(|e| e.to_string())?;
     Ok(params)
 }
