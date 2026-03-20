@@ -1,6 +1,12 @@
 use std::path::Path;
 
-pub fn load_preview(file_path: &str, max_size: u32) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+pub struct LoadedRgbaImage {
+    pub data: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
+pub fn load_preview(file_path: &str, max_size: u32) -> Result<LoadedRgbaImage, Box<dyn std::error::Error>> {
     let path = Path::new(file_path);
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
     let img = if is_raw(&ext) {
@@ -11,7 +17,13 @@ pub fn load_preview(file_path: &str, max_size: u32) -> Result<Vec<u8>, Box<dyn s
     let img = if img.width() > max_size || img.height() > max_size {
         img.resize(max_size, max_size, image::imageops::FilterType::Lanczos3)
     } else { img };
-    Ok(img.to_rgba8().into_raw())
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    Ok(LoadedRgbaImage {
+        data: rgba.into_raw(),
+        width,
+        height,
+    })
 }
 
 pub fn load_full(file_path: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {

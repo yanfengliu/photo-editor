@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"Allows the main window to use the app IPC commands and file dialogs.","local":true,"windows":["main"],"permissions":["core:default","dialog:allow-open","dialog:allow-save"]}}

@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import type { ImageRecord } from "../../types/catalog";
+import { loadThumbnail } from "../../api/image";
 import { Rating } from "../common/Rating";
 import { FlagToggle } from "../common/FlagToggle";
 import styles from "./ThumbnailCard.module.css";
@@ -6,10 +8,42 @@ import styles from "./ThumbnailCard.module.css";
 interface Props { image: ImageRecord; isSelected: boolean; onClick: () => void; onDoubleClick: () => void; }
 
 export function ThumbnailCard({ image, isSelected, onClick, onDoubleClick }: Props) {
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+
+    setThumbnailUrl(null);
+
+    loadThumbnail(image.id)
+      .then((bytes) => {
+        if (!active || bytes.length === 0) return;
+        objectUrl = URL.createObjectURL(
+          new Blob([bytes], { type: "image/jpeg" })
+        );
+        setThumbnailUrl(objectUrl);
+      })
+      .catch(() => {
+        setThumbnailUrl(null);
+      });
+
+    return () => {
+      active = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [image.id]);
+
   return (
     <div className={`${styles.card} ${isSelected ? styles.selected : ""}`} onClick={onClick} onDoubleClick={onDoubleClick}>
       <div className={styles.preview}>
-        <div className={styles.placeholder}><span className={styles.format}>{image.format.toUpperCase()}</span></div>
+        {thumbnailUrl ? (
+          <img className={styles.thumbnail} src={thumbnailUrl} alt={image.file_name} />
+        ) : (
+          <div className={styles.placeholder}><span className={styles.format}>{image.format.toUpperCase()}</span></div>
+        )}
       </div>
       <div className={styles.info}>
         <span className={styles.name}>{image.file_name}</span>

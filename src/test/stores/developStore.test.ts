@@ -17,7 +17,7 @@ vi.mock("../../api/processing", () => {
   };
   return {
     getEditParams: vi.fn().mockResolvedValue({ ...d }),
-    applyEdits: vi.fn().mockResolvedValue([0, 0, 0, 255]),
+    applyEdits: vi.fn().mockResolvedValue({ data: [0, 0, 0, 255], width: 1, height: 1 }),
     resetEdits: vi.fn().mockResolvedValue({ ...d }),
     saveSnapshot: vi.fn().mockResolvedValue(undefined),
     loadSnapshot: vi.fn().mockResolvedValue({ ...d }),
@@ -121,6 +121,14 @@ describe("developStore", () => {
     const data = new Uint8Array([255, 0, 0, 255]);
     useDevelopStore.getState().setPreviewData(data, 1, 1);
     expect(useDevelopStore.getState().previewData).toBe(data);
+    expect(useDevelopStore.getState().previewWidth).toBe(1);
+    expect(useDevelopStore.getState().previewHeight).toBe(1);
+  });
+
+  it("should populate preview dimensions after applying edits", async () => {
+    await useDevelopStore.getState().setCurrentImage("img-1");
+    await useDevelopStore.getState().applyEdits(2048);
+    expect(useDevelopStore.getState().previewData).toEqual(new Uint8Array([0, 0, 0, 255]));
     expect(useDevelopStore.getState().previewWidth).toBe(1);
     expect(useDevelopStore.getState().previewHeight).toBe(1);
   });

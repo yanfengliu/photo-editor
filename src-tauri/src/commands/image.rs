@@ -20,7 +20,9 @@ pub async fn load_preview(
     let record = crate::catalog::queries::get_image_by_id(&db, &image_id)
         .map_err(|e| e.to_string())?;
     drop(db);
-    loader::load_preview(&record.file_path, 2048).map_err(|e| e.to_string())
+    loader::load_preview(&record.file_path, 2048)
+        .map(|preview| preview.data)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

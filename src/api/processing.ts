@@ -1,11 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { EditParams, HistoryEntry } from "../types/develop";
+import type { EditParams, HistoryEntry, PreviewImagePayload } from "../types/develop";
 
 export async function applyEdits(
   imageId: string,
   params: EditParams,
   previewSize?: number
-): Promise<number[]> {
+): Promise<PreviewImagePayload> {
   return invoke("apply_edits", { imageId, params, previewSize });
 }
 

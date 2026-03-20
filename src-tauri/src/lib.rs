@@ -21,6 +21,7 @@ pub fn run() {
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::catalog::import_folder,
+            commands::catalog::import_paths,
             commands::catalog::get_images,
             commands::catalog::search_images,
             commands::catalog::set_rating,

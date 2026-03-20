@@ -79,6 +79,12 @@ export interface SnapshotRecord {
   created_at: string;
 }
 
+export interface PreviewImagePayload {
+  data: number[];
+  width: number;
+  height: number;
+}
+
 export const HSL_CHANNELS = [
   "Red",
   "Orange",

@@ -2,10 +2,12 @@
 .field { margin-bottom: 16px; }
 .label { display: block; font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: 6px; }
 .pathRow { display: flex; gap: 8px; }
+.pickerRow { display: flex; gap: 8px; margin-top: 8px; }
 .input { flex: 1; padding: 6px 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); outline: none; }
 .input:focus { border-color: var(--accent); }
 .browseBtn { padding: 6px 16px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); transition: background var(--transition-fast); }
 .browseBtn:hover { background: var(--bg-hover); }
+.hint { margin-top: 8px; font-size: var(--font-size-xs); color: var(--text-muted); }
 .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
 .cancelBtn { padding: 6px 16px; border-radius: var(--radius-sm); color: var(--text-secondary); }
 .cancelBtn:hover { color: var(--text-primary); background: var(--bg-hover); }

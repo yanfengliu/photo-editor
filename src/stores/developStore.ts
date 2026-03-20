@@ -44,7 +44,13 @@ export const useDevelopStore = create<DevelopState>((set, get) => ({
   previewHeight: 0,
 
   setCurrentImage: async (imageId: string) => {
-    set({ currentImageId: imageId, isProcessing: true });
+    set({
+      currentImageId: imageId,
+      isProcessing: true,
+      previewData: null,
+      previewWidth: 0,
+      previewHeight: 0,
+    });
     try {
       const params = await processingApi.getEditParams(imageId);
       set({
@@ -59,6 +65,9 @@ export const useDevelopStore = create<DevelopState>((set, get) => ({
         editParams: { ...DEFAULT_EDIT_PARAMS },
         originalParams: { ...DEFAULT_EDIT_PARAMS },
         isProcessing: false,
+        previewData: null,
+        previewWidth: 0,
+        previewHeight: 0,
       });
     }
   },
@@ -83,7 +92,9 @@ export const useDevelopStore = create<DevelopState>((set, get) => ({
         previewSize
       );
       set({
-        previewData: new Uint8Array(result),
+        previewData: new Uint8Array(result.data),
+        previewWidth: result.width,
+        previewHeight: result.height,
         isProcessing: false,
       });
     } catch (err) {

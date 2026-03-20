@@ -27,6 +27,7 @@ const mockImage: ImageRecord = {
 vi.mock("../../api/catalog", () => ({
   getImages: vi.fn().mockResolvedValue([]),
   importFolder: vi.fn().mockResolvedValue([]),
+  importPaths: vi.fn().mockResolvedValue([]),
   searchImages: vi.fn().mockResolvedValue([]),
   setRating: vi.fn().mockResolvedValue(undefined),
   setColorLabel: vi.fn().mockResolvedValue(undefined),
@@ -106,6 +107,25 @@ describe("catalogStore", () => {
     useCatalogStore.setState({ images: [mockImage], totalImages: 1 });
     await useCatalogStore.getState().setRating("img-1", 4);
     expect(useCatalogStore.getState().images[0].rating).toBe(4);
+  });
+
+  it("should prepend imported images when importing paths", async () => {
+    const catalogApi = await import("../../api/catalog");
+    vi.mocked(catalogApi.importPaths).mockResolvedValueOnce([mockImage]);
+
+    await useCatalogStore.getState().importPaths(["/photos/test.jpg"]);
+
+    expect(useCatalogStore.getState().images[0]).toEqual(mockImage);
+    expect(useCatalogStore.getState().totalImages).toBe(1);
+  });
+
+  it("should rethrow import errors", async () => {
+    const catalogApi = await import("../../api/catalog");
+    vi.mocked(catalogApi.importPaths).mockRejectedValueOnce(new Error("RAW not supported"));
+
+    await expect(
+      useCatalogStore.getState().importPaths(["/photos/test.cr3"])
+    ).rejects.toThrow("RAW not supported");
   });
 
   it("should set color label via API and update locally", async () => {

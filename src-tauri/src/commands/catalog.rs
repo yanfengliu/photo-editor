@@ -8,8 +8,16 @@ pub async fn import_folder(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<Vec<ImageRecord>, String> {
+    import_paths(state, vec![path]).await
+}
+
+#[tauri::command]
+pub async fn import_paths(
+    state: State<'_, AppState>,
+    paths: Vec<String>,
+) -> Result<Vec<ImageRecord>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    import::import_folder(&db, &path).map_err(|e| e.to_string())
+    import::import_paths(&db, &paths).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -2,13 +2,20 @@ use tauri::State;
 use crate::state::AppState;
 use crate::catalog::models::EditParams;
 
+#[derive(serde::Serialize)]
+pub struct PreviewImagePayload {
+    pub data: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
 #[tauri::command]
 pub async fn apply_edits(
     state: State<'_, AppState>,
     image_id: String,
     params: EditParams,
     preview_size: Option<u32>,
-) -> Result<Vec<u8>, String> {
+) -> Result<PreviewImagePayload, String> {
     // Load the image
     let file_path = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -18,7 +25,7 @@ pub async fn apply_edits(
     };
 
     let max_size = preview_size.unwrap_or(2048);
-    let pixels = crate::imaging::loader::load_preview(&file_path, max_size)
+    let preview = crate::imaging::loader::load_preview(&file_path, max_size)
         .map_err(|e| e.to_string())?;
 
     // Try GPU processing
@@ -26,9 +33,9 @@ pub async fn apply_edits(
     let result = if let Some(ref _gpu_ctx) = *gpu {
         // GPU pipeline would process here
         // For now, apply CPU fallback
-        crate::gpu::pipeline::apply_edits_cpu(&pixels, &params)
+        crate::gpu::pipeline::apply_edits_cpu(&preview.data, &params)
     } else {
-        crate::gpu::pipeline::apply_edits_cpu(&pixels, &params)
+        crate::gpu::pipeline::apply_edits_cpu(&preview.data, &params)
     };
 
     // Save edit params to DB
@@ -39,7 +46,11 @@ pub async fn apply_edits(
             .map_err(|e| e.to_string())?;
     }
 
-    Ok(result)
+    Ok(PreviewImagePayload {
+        data: result,
+        width: preview.width,
+        height: preview.height,
+    })
 }
 
 #[tauri::command]

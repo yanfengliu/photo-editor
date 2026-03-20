@@ -2,7 +2,11 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ImageRecord, CollectionRecord } from "../types/catalog";
 
 export async function importFolder(path: string): Promise<ImageRecord[]> {
-  return invoke("import_folder", { path });
+  return importPaths([path]);
+}
+
+export async function importPaths(paths: string[]): Promise<ImageRecord[]> {
+  return invoke("import_paths", { paths });
 }
 
 export async function getImages(

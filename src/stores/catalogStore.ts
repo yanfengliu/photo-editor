@@ -11,7 +11,7 @@ interface CatalogState {
   folders: string[];
 
   loadImages: (offset?: number, limit?: number) => Promise<void>;
-  importFolder: (path: string) => Promise<ImageRecord[]>;
+  importPaths: (paths: string[]) => Promise<ImageRecord[]>;
   searchImages: () => Promise<void>;
   setFilter: (filter: Partial<FilterState>) => void;
   clearFilter: () => void;
@@ -62,10 +62,10 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
     }
   },
 
-  importFolder: async (path: string) => {
+  importPaths: async (paths: string[]) => {
     set({ loading: true });
     try {
-      const imported = await catalogApi.importFolder(path);
+      const imported = await catalogApi.importPaths(paths);
       set((s) => ({
         images: [...imported, ...s.images],
         totalImages: s.totalImages + imported.length,
@@ -73,9 +73,9 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
       }));
       return imported;
     } catch (err) {
-      console.error("Failed to import folder:", err);
+      console.error("Failed to import paths:", err);
       set({ loading: false });
-      return [];
+      throw err;
     }
   },
 
