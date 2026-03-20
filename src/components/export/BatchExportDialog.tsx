@@ -8,7 +8,7 @@ import styles from "./ExportDialog.module.css";
 export function BatchExportDialog() {
   const { selectedImageIds, setStatusMessage } = useUiStore();
   const [format, setFormat] = useState<"jpeg"|"png"|"tiff">("jpeg");
-  const [quality, setQuality] = useState(90);
+  const [quality] = useState(90);
   const [outputDir, setOutputDir] = useState("");
   const [exporting, setExporting] = useState(false);
   const [isOpen, setIsOpen] = useState(true);

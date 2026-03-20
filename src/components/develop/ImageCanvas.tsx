@@ -19,7 +19,9 @@ export function ImageCanvas() {
     const width = previewWidth || Math.round(Math.sqrt(pixelCount));
     const height = previewHeight || Math.round(pixelCount / width);
     canvas.width = width; canvas.height = height;
-    const imageData = new ImageData(new Uint8ClampedArray(previewData.buffer), width, height);
+    const clampedData = new Uint8ClampedArray(previewData.length);
+    clampedData.set(previewData);
+    const imageData = new ImageData(clampedData, width, height);
     ctx.putImageData(imageData, 0, 0);
   }, [previewData, previewWidth, previewHeight]);
 

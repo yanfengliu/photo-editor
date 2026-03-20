@@ -9,7 +9,9 @@
       "Bash(where rustc:*)",
       "Bash(export PATH=\"$HOME/.cargo/bin:$PATH\")",
       "Read(//c/Users/38909/Documents/github/photo-editor/$USERPROFILE/.cargo/**)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite:*)"
     ]
   }
 }
