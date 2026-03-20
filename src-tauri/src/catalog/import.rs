@@ -3,6 +3,7 @@ use rayon::prelude::*;
 use walkdir::WalkDir;
 use crate::catalog::db::Database;
 use crate::catalog::models::ImageRecord;
+use crate::imaging::raw;
 use crate::imaging::{thumbnail, exif};
 
 const SUPPORTED_EXTENSIONS: &[&str] = &[
@@ -81,7 +82,11 @@ fn import_single_file(path: &Path) -> Result<(ImageRecord, Vec<u8>), Box<dyn std
         _ => "jpeg",
     }.to_string();
 
-    let (width, height) = image::image_dimensions(path).unwrap_or((0, 0));
+    let (width, height) = if raw::is_raw_path(path) {
+        raw::raw_dimensions(path).unwrap_or((0, 0))
+    } else {
+        image::image_dimensions(path).unwrap_or((0, 0))
+    };
     let exif_data = exif::read_exif_basic(path);
     let thumb_data = thumbnail::generate_thumbnail(path, 256)?;
 

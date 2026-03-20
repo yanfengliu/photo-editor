@@ -1169,6 +1169,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fn-util"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "009f3d3b8f0d30fdb4b8498a7a0113baf580d7153fbc39ece702804fb044cfab"
+dependencies = [
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3194,6 +3204,7 @@ dependencies = [
  "kamadak-exif",
  "log",
  "pollster",
+ "quickraw",
  "rayon",
  "rusqlite",
  "serde",
@@ -3448,6 +3459,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b66c2058c55a409d601666cffe35f04333cf1013010882cec174a7467cd4e21c"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "quickexif"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00e1f8545279eb259ab276ce0f98580972dfc3a4cb90b4e57e601fb33254318d"
+dependencies = [
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "quickraw"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54cca3f40f418914880075ffb248b44254185e441b026130c5607d396c91e8b8"
+dependencies = [
+ "fn-util",
+ "once_cell",
+ "phf 0.10.1",
+ "quickexif",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
