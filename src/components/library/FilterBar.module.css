@@ -1,0 +1,6 @@
+.bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-panel); border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
+.filters { display: flex; gap: 6px; align-items: center; }
+.select { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 8px; font-size: var(--font-size-xs); color: var(--text-secondary); outline: none; cursor: pointer; }
+.select:focus { border-color: var(--accent); }
+.clearBtn { font-size: var(--font-size-xs); color: var(--text-accent); padding: 4px 8px; }
+.clearBtn:hover { text-decoration: underline; }

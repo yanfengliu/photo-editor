@@ -1,0 +1,6 @@
+.develop { display: flex; height: 100%; overflow: hidden; }
+.leftPanel { width: 220px; background: var(--bg-panel); border-right: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; }
+.center { flex: 1; display: flex; align-items: center; justify-content: center; background: var(--bg-app); overflow: hidden; }
+.empty { color: var(--text-muted); font-size: var(--font-size-lg); }
+.rightPanel { width: var(--panel-width); background: var(--bg-panel); border-left: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; }
+.panels { padding: 4px; }

@@ -1,0 +1,5 @@
+.wrapper { position: relative; flex: 1; max-width: 300px; }
+.icon { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: var(--font-size-sm); pointer-events: none; }
+.input { width: 100%; padding: 5px 10px 5px 28px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--text-primary); font-size: var(--font-size-sm); outline: none; transition: border-color var(--transition-fast); }
+.input:focus { border-color: var(--accent); }
+.input::placeholder { color: var(--text-muted); }

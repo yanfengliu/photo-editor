@@ -1,0 +1,32 @@
+[package]
+name = "photo-editor"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "photo_editor_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+image = { version = "0.25", features = ["jpeg", "png", "tiff"] }
+wgpu = "24"
+bytemuck = { version = "1", features = ["derive"] }
+walkdir = "2"
+rayon = "1"
+kamadak-exif = "0.5"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+log = "0.4"
+env_logger = "0.11"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+pollster = "0.4"

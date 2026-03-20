@@ -1,0 +1,4 @@
+.colors { display: flex; gap: 4px; }
+.dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid transparent; transition: border-color var(--transition-fast), transform var(--transition-fast); }
+.dot:hover { transform: scale(1.2); }
+.dot.active { border-color: var(--text-primary); }

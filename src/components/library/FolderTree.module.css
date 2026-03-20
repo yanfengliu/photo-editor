@@ -1,0 +1,7 @@
+.tree { padding: 8px; }
+.section { margin-bottom: 16px; }
+.sectionTitle { font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); padding: 4px 8px; margin-bottom: 4px; }
+.item { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-sm); transition: background var(--transition-fast); }
+.item:hover { background: var(--bg-hover); }
+.count { font-size: var(--font-size-xs); color: var(--text-muted); }
+.empty { padding: 8px; font-size: var(--font-size-xs); color: var(--text-muted); font-style: italic; }

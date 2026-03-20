@@ -1,0 +1,5 @@
+.rating { display: inline-flex; gap: 1px; }
+.star { font-size: 14px; color: var(--text-muted); padding: 0 1px; line-height: 1; transition: color var(--transition-fast); }
+.star:hover { color: var(--rating-star); }
+.star.filled { color: var(--rating-star); }
+.small .star { font-size: 10px; }

@@ -1,0 +1,4 @@
+.library { display: flex; height: 100%; overflow: hidden; }
+.leftPanel { width: var(--panel-width); background: var(--bg-panel); border-right: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; }
+.center { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.rightPanel { width: var(--panel-width); background: var(--bg-panel); border-left: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; }

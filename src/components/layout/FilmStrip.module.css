@@ -1,0 +1,8 @@
+.filmStrip { height: var(--filmstrip-height); background: var(--bg-panel); border-top: 1px solid var(--border); overflow-x: auto; overflow-y: hidden; flex-shrink: 0; }
+.track { display: flex; gap: 4px; padding: 8px; height: 100%; }
+.thumb { flex-shrink: 0; width: 80px; height: 100%; background: var(--bg-surface); border: 2px solid transparent; border-radius: var(--radius-sm); cursor: pointer; position: relative; overflow: hidden; transition: border-color var(--transition-fast); }
+.thumb:hover { border-color: var(--bg-active); }
+.thumb.selected { border-color: var(--accent); }
+.thumbInner { display: flex; align-items: center; justify-content: center; height: 100%; padding: 4px; }
+.thumbLabel { font-size: 9px; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; text-align: center; }
+.rating { position: absolute; bottom: 2px; left: 4px; font-size: 8px; color: var(--rating-star); }

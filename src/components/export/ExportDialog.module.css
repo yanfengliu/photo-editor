@@ -1,0 +1,9 @@
+.content { padding: 16px 0; min-width: 300px; }
+.warning { color: var(--warning); font-size: var(--font-size-sm); margin-bottom: 12px; }
+.field { margin-bottom: 12px; }
+.label { display: block; font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: 6px; }
+.select, .input { width: 100%; padding: 6px 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); outline: none; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+.cancelBtn { padding: 6px 16px; border-radius: var(--radius-sm); color: var(--text-secondary); }
+.exportBtn { padding: 6px 20px; background: var(--accent); color: #fff; border-radius: var(--radius-sm); font-weight: 500; }
+.exportBtn:disabled { opacity: 0.5; cursor: not-allowed; }

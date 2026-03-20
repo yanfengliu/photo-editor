@@ -1,0 +1,4 @@
+.tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.tab { flex: 1; padding: 4px; font-size: var(--font-size-xs); color: var(--text-muted); border-radius: var(--radius-sm); text-align: center; }
+.tab:hover { background: var(--bg-hover); }
+.tab.active { background: var(--bg-surface); color: var(--text-primary); }

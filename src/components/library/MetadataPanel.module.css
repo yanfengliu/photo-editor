@@ -1,0 +1,11 @@
+.panel { padding: 12px; }
+.empty { display: flex; align-items: center; justify-content: center; height: 200px; color: var(--text-muted); font-size: var(--font-size-sm); }
+.section { margin-bottom: 16px; }
+.sectionTitle { font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border-subtle); }
+.row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; }
+.label { font-size: var(--font-size-sm); color: var(--text-secondary); }
+.metaRow { display: flex; justify-content: space-between; padding: 3px 0; font-size: var(--font-size-xs); }
+.metaLabel { color: var(--text-muted); }
+.metaValue { color: var(--text-secondary); text-align: right; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.tag { padding: 2px 8px; background: var(--bg-surface); border-radius: 10px; font-size: var(--font-size-xs); color: var(--text-secondary); }

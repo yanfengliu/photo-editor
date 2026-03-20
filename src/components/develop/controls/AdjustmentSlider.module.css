@@ -1,0 +1,5 @@
+.slider { padding: 2px 0; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+.label { font-size: var(--font-size-xs); color: var(--text-secondary); }
+.value { font-size: var(--font-size-xs); color: var(--text-muted); min-width: 36px; text-align: right; cursor: pointer; }
+.value:hover { color: var(--text-accent); }

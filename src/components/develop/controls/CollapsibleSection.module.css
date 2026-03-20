@@ -1,0 +1,7 @@
+.section { border-bottom: 1px solid var(--border-subtle); }
+.header { display: flex; align-items: center; gap: 6px; width: 100%; padding: 8px; text-align: left; transition: background var(--transition-fast); }
+.header:hover { background: var(--bg-hover); }
+.arrow { font-size: 8px; color: var(--text-muted); transition: transform var(--transition-fast); }
+.arrow.open { transform: rotate(90deg); }
+.title { font-size: var(--font-size-sm); font-weight: 500; }
+.content { padding: 4px 12px 12px; }

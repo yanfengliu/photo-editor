@@ -1,0 +1,4 @@
+.svg { background: var(--bg-input); border-radius: var(--radius-sm); cursor: crosshair; display: block; width: 100%; aspect-ratio: 1; }
+.diagonal { stroke: var(--border); stroke-width: 1; stroke-dasharray: 4 4; }
+.point { cursor: grab; }
+.point:active { cursor: grabbing; }

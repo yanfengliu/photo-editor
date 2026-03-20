@@ -1,0 +1,14 @@
+.content { padding: 16px 0; }
+.field { margin-bottom: 16px; }
+.label { display: block; font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: 6px; }
+.pathRow { display: flex; gap: 8px; }
+.input { flex: 1; padding: 6px 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); outline: none; }
+.input:focus { border-color: var(--accent); }
+.browseBtn { padding: 6px 16px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); transition: background var(--transition-fast); }
+.browseBtn:hover { background: var(--bg-hover); }
+.actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+.cancelBtn { padding: 6px 16px; border-radius: var(--radius-sm); color: var(--text-secondary); }
+.cancelBtn:hover { color: var(--text-primary); background: var(--bg-hover); }
+.importBtn { padding: 6px 20px; background: var(--accent); color: #fff; border-radius: var(--radius-sm); font-weight: 500; transition: background var(--transition-fast); }
+.importBtn:hover:not(:disabled) { background: var(--accent-hover); }
+.importBtn:disabled { opacity: 0.5; cursor: not-allowed; }

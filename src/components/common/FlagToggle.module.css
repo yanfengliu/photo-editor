@@ -1,0 +1,6 @@
+.flags { display: flex; gap: 2px; }
+.flag { font-size: 12px; padding: 0 4px; color: var(--text-muted); border-radius: var(--radius-sm); transition: color var(--transition-fast); }
+.flag:hover { color: var(--text-primary); }
+.flag.picked { color: var(--success); }
+.flag.rejected { color: var(--danger); }
+.small .flag { font-size: 9px; padding: 0 2px; }
