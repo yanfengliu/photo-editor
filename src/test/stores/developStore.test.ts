@@ -18,6 +18,7 @@ vi.mock("../../api/processing", () => {
   return {
     getEditParams: vi.fn().mockResolvedValue({ ...d }),
     applyEdits: vi.fn().mockResolvedValue({ data: [0, 0, 0, 255], width: 1, height: 1 }),
+    saveEditParams: vi.fn().mockResolvedValue(undefined),
     resetEdits: vi.fn().mockResolvedValue({ ...d }),
     saveSnapshot: vi.fn().mockResolvedValue(undefined),
     loadSnapshot: vi.fn().mockResolvedValue({ ...d }),
@@ -28,6 +29,7 @@ vi.mock("../../api/processing", () => {
 });
 
 import { useDevelopStore } from "../../stores/developStore";
+import * as processingApi from "../../api/processing";
 import { DEFAULT_EDIT_PARAMS } from "../../types/develop";
 
 describe("developStore", () => {
@@ -36,11 +38,13 @@ describe("developStore", () => {
       currentImageId: null,
       editParams: { ...DEFAULT_EDIT_PARAMS },
       originalParams: { ...DEFAULT_EDIT_PARAMS },
+      persistedParams: { ...DEFAULT_EDIT_PARAMS },
       history: [],
       snapshots: [],
       undoStack: [],
       redoStack: [],
       isProcessing: false,
+      isAdjusting: false,
       previewData: null,
       previewWidth: 0,
       previewHeight: 0,
@@ -133,6 +137,58 @@ describe("developStore", () => {
     expect(useDevelopStore.getState().previewHeight).toBe(1);
   });
 
+  it("should persist edit params only when they changed", async () => {
+    await useDevelopStore.getState().setCurrentImage("img-1");
+
+    await useDevelopStore.getState().persistEdits();
+    expect(vi.mocked(processingApi.saveEditParams)).not.toHaveBeenCalled();
+
+    useDevelopStore.getState().updateParam("exposure", 1);
+    await useDevelopStore.getState().persistEdits();
+
+    expect(vi.mocked(processingApi.saveEditParams)).toHaveBeenCalledWith(
+      "img-1",
+      expect.objectContaining({ exposure: 1 })
+    );
+    expect(useDevelopStore.getState().persistedParams.exposure).toBe(1);
+  });
+
+  it("should keep the latest preview when earlier apply requests resolve later", async () => {
+    await useDevelopStore.getState().setCurrentImage("img-1");
+
+    let resolveFirst!: (value: { data: number[]; width: number; height: number }) => void;
+    let resolveSecond!: (value: { data: number[]; width: number; height: number }) => void;
+
+    vi.mocked(processingApi.applyEdits)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          })
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecond = resolve;
+          })
+      );
+
+    useDevelopStore.getState().updateParam("exposure", 1);
+    const firstRequest = useDevelopStore.getState().applyEdits(2048);
+
+    useDevelopStore.getState().updateParam("exposure", 2);
+    const secondRequest = useDevelopStore.getState().applyEdits(2048);
+
+    resolveSecond({ data: [2, 0, 0, 255], width: 1, height: 1 });
+    await secondRequest;
+
+    resolveFirst({ data: [1, 0, 0, 255], width: 1, height: 1 });
+    await firstRequest;
+
+    expect(useDevelopStore.getState().previewData).toEqual(new Uint8Array([2, 0, 0, 255]));
+    expect(useDevelopStore.getState().isProcessing).toBe(false);
+  });
+
   it("should update HSL array parameters", () => {
     const newHue = [10, 20, 30, 40, 50, 60, 70, 80];
     useDevelopStore.getState().updateParam("hsl_hue", newHue);
@@ -143,5 +199,13 @@ describe("developStore", () => {
     const newCurve = [{ x: 0, y: 0 }, { x: 0.5, y: 0.7 }, { x: 1, y: 1 }];
     useDevelopStore.getState().updateParam("curve_rgb", newCurve);
     expect(useDevelopStore.getState().editParams.curve_rgb).toEqual(newCurve);
+  });
+
+  it("should toggle slider interaction state", () => {
+    useDevelopStore.getState().startAdjusting();
+    expect(useDevelopStore.getState().isAdjusting).toBe(true);
+
+    useDevelopStore.getState().stopAdjusting();
+    expect(useDevelopStore.getState().isAdjusting).toBe(false);
   });
 });

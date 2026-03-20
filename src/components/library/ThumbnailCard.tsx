@@ -19,8 +19,10 @@ export function ThumbnailCard({ image, isSelected, onClick, onDoubleClick }: Pro
     loadThumbnail(image.id)
       .then((bytes) => {
         if (!active || bytes.length === 0) return;
+        const buffer = new ArrayBuffer(bytes.byteLength);
+        new Uint8Array(buffer).set(bytes);
         objectUrl = URL.createObjectURL(
-          new Blob([bytes], { type: "image/jpeg" })
+          new Blob([buffer], { type: "image/jpeg" })
         );
         setThumbnailUrl(objectUrl);
       })

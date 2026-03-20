@@ -38,6 +38,7 @@ pub fn run() {
             commands::image::load_full_resolution,
             commands::image::get_exif_data,
             commands::develop::apply_edits,
+            commands::develop::save_edit_params,
             commands::develop::get_edit_params,
             commands::develop::reset_edits,
             commands::develop::save_snapshot,

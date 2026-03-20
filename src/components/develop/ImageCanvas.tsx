@@ -1,14 +1,33 @@
 import { useRef, useEffect } from "react";
 import { useDevelopStore } from "../../stores/developStore";
 import { useDebounce } from "../../hooks/useDebounce";
+import { useThrottle } from "../../hooks/useThrottle";
 import styles from "./ImageCanvas.module.css";
 
 export function ImageCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { previewData, previewWidth, previewHeight, editParams, applyEdits, isProcessing } = useDevelopStore();
+  const {
+    previewData,
+    previewWidth,
+    previewHeight,
+    editParams,
+    applyEdits,
+    persistEdits,
+    isProcessing,
+    isAdjusting,
+  } = useDevelopStore();
 
-  const debouncedApply = useDebounce(() => { applyEdits(2048); }, 30);
-  useEffect(() => { debouncedApply(); }, [editParams]);
+  const throttledApply = useThrottle(() => {
+    applyEdits(isAdjusting ? 1024 : 2048);
+  }, 30);
+  const debouncedPersist = useDebounce(() => {
+    persistEdits();
+  }, 250);
+
+  useEffect(() => {
+    throttledApply();
+    if (!isAdjusting) debouncedPersist();
+  }, [editParams, isAdjusting, throttledApply, debouncedPersist]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

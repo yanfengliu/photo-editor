@@ -9,6 +9,41 @@ pub struct PreviewImagePayload {
     pub height: u32,
 }
 
+fn get_cached_preview(
+    state: &AppState,
+    image_id: &str,
+    file_path: &str,
+    max_size: u32,
+) -> Result<crate::state::CachedPreview, String> {
+    let cache_key = format!("{image_id}:{max_size}");
+
+    if let Some(preview) = state
+        .preview_cache
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&cache_key)
+        .cloned()
+    {
+        return Ok(preview);
+    }
+
+    let preview = crate::imaging::loader::load_preview(file_path, max_size)
+        .map_err(|e| e.to_string())?;
+    let cached = crate::state::CachedPreview {
+        data: preview.data.into(),
+        width: preview.width,
+        height: preview.height,
+    };
+
+    let mut cache = state.preview_cache.lock().map_err(|e| e.to_string())?;
+    if cache.len() >= 8 {
+        cache.clear();
+    }
+    cache.insert(cache_key, cached.clone());
+
+    Ok(cached)
+}
+
 #[tauri::command]
 pub async fn apply_edits(
     state: State<'_, AppState>,
@@ -25,32 +60,35 @@ pub async fn apply_edits(
     };
 
     let max_size = preview_size.unwrap_or(2048);
-    let preview = crate::imaging::loader::load_preview(&file_path, max_size)
-        .map_err(|e| e.to_string())?;
+    let preview = get_cached_preview(&state, &image_id, &file_path, max_size)?;
 
     // Try GPU processing
     let gpu = state.gpu.lock().map_err(|e| e.to_string())?;
     let result = if let Some(ref _gpu_ctx) = *gpu {
         // GPU pipeline would process here
         // For now, apply CPU fallback
-        crate::gpu::pipeline::apply_edits_cpu(&preview.data, &params)
+        crate::gpu::pipeline::apply_edits_cpu(preview.data.as_ref(), &params)
     } else {
-        crate::gpu::pipeline::apply_edits_cpu(&preview.data, &params)
+        crate::gpu::pipeline::apply_edits_cpu(preview.data.as_ref(), &params)
     };
-
-    // Save edit params to DB
-    {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        let params_json = serde_json::to_string(&params).map_err(|e| e.to_string())?;
-        crate::catalog::queries::save_edit_params(&db, &image_id, &params_json)
-            .map_err(|e| e.to_string())?;
-    }
 
     Ok(PreviewImagePayload {
         data: result,
         width: preview.width,
         height: preview.height,
     })
+}
+
+#[tauri::command]
+pub async fn save_edit_params(
+    state: State<'_, AppState>,
+    image_id: String,
+    params: EditParams,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let params_json = serde_json::to_string(&params).map_err(|e| e.to_string())?;
+    crate::catalog::queries::save_edit_params(&db, &image_id, &params_json)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -9,6 +9,13 @@ export async function applyEdits(
   return invoke("apply_edits", { imageId, params, previewSize });
 }
 
+export async function saveEditParams(
+  imageId: string,
+  params: EditParams
+): Promise<void> {
+  return invoke("save_edit_params", { imageId, params });
+}
+
 export async function getEditParams(imageId: string): Promise<EditParams> {
   return invoke("get_edit_params", { imageId });
 }
