@@ -10,28 +10,9 @@ pub struct ExportSettings {
     pub max_dimension: Option<u32>,
 }
 
-#[tauri::command]
-pub async fn export_image(
-    state: State<'_, AppState>,
-    image_id: String,
-    settings: ExportSettings,
-) -> Result<String, String> {
-    let file_path = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        let record = crate::catalog::queries::get_image_by_id(&db, &image_id)
-            .map_err(|e| e.to_string())?;
-        record.file_path.clone()
-    };
-
-    let edit_params: EditParams = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        let record = crate::catalog::queries::get_image_by_id(&db, &image_id)
-            .map_err(|e| e.to_string())?;
-        match record.edit_params {
-            Some(ref json) => serde_json::from_str(json).unwrap_or_default(),
-            None => EditParams::default(),
-        }
-    };
+fn process_image(state: &AppState, image_id: &str) -> Result<(Vec<u8>, u32, u32), String> {
+    let file_path = state.get_image_file_path(image_id)?;
+    let edit_params = state.get_image_edit_params(image_id)?;
 
     let image = crate::imaging::loader::load_full_rgba(&file_path)
         .map_err(|e| e.to_string())?;
@@ -43,9 +24,21 @@ pub async fn export_image(
         image.height,
         &edit_params,
     );
+    Ok((processed, image.width, image.height))
+}
+
+#[tauri::command]
+pub async fn export_image(
+    state: State<'_, AppState>,
+    image_id: String,
+    settings: ExportSettings,
+) -> Result<String, String> {
+    let (processed, width, height) = process_image(&state, &image_id)?;
 
     crate::imaging::export::export_pixels(
         &processed,
+        width,
+        height,
         &settings.output_path,
         &settings.format,
         settings.quality,
@@ -63,13 +56,7 @@ pub async fn batch_export(
 ) -> Result<Vec<String>, String> {
     let mut results = Vec::new();
     for image_id in &image_ids {
-        let file_path = {
-            let db = state.db.lock().map_err(|e| e.to_string())?;
-            let record = crate::catalog::queries::get_image_by_id(&db, image_id)
-                .map_err(|e| e.to_string())?;
-            record.file_path.clone()
-        };
-
+        let file_path = state.get_image_file_path(image_id)?;
         let file_name = std::path::Path::new(&file_path)
             .file_stem()
             .and_then(|s| s.to_str())
@@ -83,29 +70,12 @@ pub async fn batch_export(
         };
         let output_path = format!("{}/{}.{}", settings.output_path, file_name, ext);
 
-        let edit_params: EditParams = {
-            let db = state.db.lock().map_err(|e| e.to_string())?;
-            let record = crate::catalog::queries::get_image_by_id(&db, image_id)
-                .map_err(|e| e.to_string())?;
-            match record.edit_params {
-                Some(ref json) => serde_json::from_str(json).unwrap_or_default(),
-                None => EditParams::default(),
-            }
-        };
-
-        let image = crate::imaging::loader::load_full_rgba(&file_path)
-            .map_err(|e| e.to_string())?;
-        let mut gpu = state.gpu.lock().map_err(|e| e.to_string())?;
-        let processed = crate::gpu::pipeline::apply_edits_with_backend(
-            gpu.as_mut(),
-            &image.data,
-            image.width,
-            image.height,
-            &edit_params,
-        );
+        let (processed, width, height) = process_image(&state, image_id)?;
 
         crate::imaging::export::export_pixels(
             &processed,
+            width,
+            height,
             &output_path,
             &settings.format,
             settings.quality,
@@ -128,7 +98,7 @@ pub async fn export_xmp_sidecar(
         .map_err(|e| e.to_string())?;
 
     let edit_params: EditParams = match record.edit_params {
-        Some(ref json) => serde_json::from_str(json).unwrap_or_default(),
+        Some(ref json) => serde_json::from_str(json).map_err(|e| e.to_string())?,
         None => EditParams::default(),
     };
 

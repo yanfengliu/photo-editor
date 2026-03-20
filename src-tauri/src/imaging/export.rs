@@ -3,12 +3,9 @@ use std::io::Cursor;
 use image::{DynamicImage, RgbaImage, ImageFormat};
 
 pub fn export_pixels(
-    rgba_data: &[u8], output_path: &str, format: &str, quality: u8, max_dimension: Option<u32>,
+    rgba_data: &[u8], width: u32, height: u32, output_path: &str, format: &str, quality: u8, max_dimension: Option<u32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let pixel_count = rgba_data.len() / 4;
-    let side = (pixel_count as f64).sqrt() as u32;
-    let height = if side > 0 { pixel_count as u32 / side } else { 0 };
-    let img = RgbaImage::from_raw(side, height, rgba_data.to_vec()).ok_or("Failed to create image")?;
+    let img = RgbaImage::from_raw(width, height, rgba_data.to_vec()).ok_or("Failed to create image from RGBA data")?;
     let mut img = DynamicImage::ImageRgba8(img);
     if let Some(max) = max_dimension {
         if img.width() > max || img.height() > max {

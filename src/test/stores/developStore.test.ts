@@ -20,9 +20,6 @@ vi.mock("../../api/processing", () => {
     applyEdits: vi.fn().mockResolvedValue({ data: new Uint8Array([0, 0, 0, 255]), width: 1, height: 1 }),
     saveEditParams: vi.fn().mockResolvedValue(undefined),
     resetEdits: vi.fn().mockResolvedValue({ ...d }),
-    saveSnapshot: vi.fn().mockResolvedValue(undefined),
-    loadSnapshot: vi.fn().mockResolvedValue({ ...d }),
-    getHistory: vi.fn().mockResolvedValue([]),
     copyEdits: vi.fn().mockResolvedValue(undefined),
     pasteEdits: vi.fn().mockResolvedValue({ ...d }),
   };
@@ -39,8 +36,6 @@ describe("developStore", () => {
       editParams: { ...DEFAULT_EDIT_PARAMS },
       originalParams: { ...DEFAULT_EDIT_PARAMS },
       persistedParams: { ...DEFAULT_EDIT_PARAMS },
-      history: [],
-      snapshots: [],
       undoStack: [],
       redoStack: [],
       isProcessing: false,

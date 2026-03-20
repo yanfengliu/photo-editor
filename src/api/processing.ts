@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { EditParams, HistoryEntry } from "../types/develop";
+import type { EditParams } from "../types/develop";
 
 export interface BinaryPreview {
   data: Uint8Array;
@@ -34,21 +34,6 @@ export async function getEditParams(imageId: string): Promise<EditParams> {
 
 export async function resetEdits(imageId: string): Promise<EditParams> {
   return invoke("reset_edits", { imageId });
-}
-
-export async function saveSnapshot(imageId: string, name: string): Promise<void> {
-  return invoke("save_snapshot", { imageId, name });
-}
-
-export async function loadSnapshot(
-  imageId: string,
-  snapshotId: string
-): Promise<EditParams> {
-  return invoke("load_snapshot", { imageId, snapshotId });
-}
-
-export async function getHistory(imageId: string): Promise<HistoryEntry[]> {
-  return invoke("get_history", { imageId });
 }
 
 export async function copyEdits(imageId: string): Promise<void> {

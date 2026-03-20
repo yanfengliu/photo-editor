@@ -46,13 +46,7 @@ pub async fn apply_edits(
     params: EditParams,
     preview_size: Option<u32>,
 ) -> Result<Response, String> {
-    // Load the image
-    let file_path = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        let record = crate::catalog::queries::get_image_by_id(&db, &image_id)
-            .map_err(|e| e.to_string())?;
-        record.file_path.clone()
-    };
+    let file_path = state.get_image_file_path(&image_id)?;
 
     let max_size = preview_size.unwrap_or(2048);
     let preview = get_cached_preview(&state, &image_id, &file_path, max_size)?;
@@ -91,13 +85,7 @@ pub async fn get_edit_params(
     state: State<'_, AppState>,
     image_id: String,
 ) -> Result<EditParams, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let record = crate::catalog::queries::get_image_by_id(&db, &image_id)
-        .map_err(|e| e.to_string())?;
-    match record.edit_params {
-        Some(json) => serde_json::from_str(&json).map_err(|e| e.to_string()),
-        None => Ok(EditParams::default()),
-    }
+    state.get_image_edit_params(&image_id)
 }
 
 #[tauri::command]
@@ -173,7 +161,8 @@ pub async fn paste_edits(
     drop(clipboard);
 
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    crate::catalog::queries::save_edit_params(&db, &image_id, &serde_json::to_string(&params).unwrap())
+    let params_json = serde_json::to_string(&params).map_err(|e| e.to_string())?;
+    crate::catalog::queries::save_edit_params(&db, &image_id, &params_json)
         .map_err(|e| e.to_string())?;
     Ok(params)
 }
