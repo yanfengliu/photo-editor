@@ -110,7 +110,7 @@ export const useDevelopStore = create<DevelopState>((set, get) => ({
       );
       if (requestId !== latestPreviewRequestId) return;
       set({
-        previewData: new Uint8Array(result.data),
+        previewData: result.data,
         previewWidth: result.width,
         previewHeight: result.height,
         isProcessing: false,

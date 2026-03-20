@@ -35,9 +35,9 @@ pub async fn export_image(
 
     let image = crate::imaging::loader::load_full_rgba(&file_path)
         .map_err(|e| e.to_string())?;
-    let gpu = state.gpu.lock().map_err(|e| e.to_string())?;
+    let mut gpu = state.gpu.lock().map_err(|e| e.to_string())?;
     let processed = crate::gpu::pipeline::apply_edits_with_backend(
-        gpu.as_ref(),
+        gpu.as_mut(),
         &image.data,
         image.width,
         image.height,
@@ -95,9 +95,9 @@ pub async fn batch_export(
 
         let image = crate::imaging::loader::load_full_rgba(&file_path)
             .map_err(|e| e.to_string())?;
-        let gpu = state.gpu.lock().map_err(|e| e.to_string())?;
+        let mut gpu = state.gpu.lock().map_err(|e| e.to_string())?;
         let processed = crate::gpu::pipeline::apply_edits_with_backend(
-            gpu.as_ref(),
+            gpu.as_mut(),
             &image.data,
             image.width,
             image.height,

@@ -1,13 +1,7 @@
 use tauri::State;
+use tauri::ipc::Response;
 use crate::state::AppState;
 use crate::catalog::models::EditParams;
-
-#[derive(serde::Serialize)]
-pub struct PreviewImagePayload {
-    pub data: Vec<u8>,
-    pub width: u32,
-    pub height: u32,
-}
 
 fn get_cached_preview(
     state: &AppState,
@@ -44,13 +38,14 @@ fn get_cached_preview(
     Ok(cached)
 }
 
+/// Returns binary response: [width: u32 LE][height: u32 LE][RGBA pixel data...]
 #[tauri::command]
 pub async fn apply_edits(
     state: State<'_, AppState>,
     image_id: String,
     params: EditParams,
     preview_size: Option<u32>,
-) -> Result<PreviewImagePayload, String> {
+) -> Result<Response, String> {
     // Load the image
     let file_path = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -62,20 +57,21 @@ pub async fn apply_edits(
     let max_size = preview_size.unwrap_or(2048);
     let preview = get_cached_preview(&state, &image_id, &file_path, max_size)?;
 
-    let gpu = state.gpu.lock().map_err(|e| e.to_string())?;
+    let mut gpu = state.gpu.lock().map_err(|e| e.to_string())?;
     let result = crate::gpu::pipeline::apply_edits_with_backend(
-        gpu.as_ref(),
+        gpu.as_mut(),
         preview.data.as_ref(),
         preview.width,
         preview.height,
         &params,
     );
 
-    Ok(PreviewImagePayload {
-        data: result,
-        width: preview.width,
-        height: preview.height,
-    })
+    // Pack as binary: 8-byte header (width + height as u32 LE) + raw RGBA bytes
+    let mut buf = Vec::with_capacity(8 + result.len());
+    buf.extend_from_slice(&preview.width.to_le_bytes());
+    buf.extend_from_slice(&preview.height.to_le_bytes());
+    buf.extend_from_slice(&result);
+    Ok(Response::new(buf))
 }
 
 #[tauri::command]

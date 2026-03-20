@@ -1,12 +1,24 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { EditParams, HistoryEntry, PreviewImagePayload } from "../types/develop";
+import type { EditParams, HistoryEntry } from "../types/develop";
+
+export interface BinaryPreview {
+  data: Uint8Array;
+  width: number;
+  height: number;
+}
 
 export async function applyEdits(
   imageId: string,
   params: EditParams,
   previewSize?: number
-): Promise<PreviewImagePayload> {
-  return invoke("apply_edits", { imageId, params, previewSize });
+): Promise<BinaryPreview> {
+  // Binary IPC: returns ArrayBuffer with [u32 width][u32 height][RGBA bytes...]
+  const buf: ArrayBuffer = await invoke("apply_edits", { imageId, params, previewSize });
+  const header = new DataView(buf, 0, 8);
+  const width = header.getUint32(0, true);
+  const height = header.getUint32(4, true);
+  const data = new Uint8Array(buf, 8);
+  return { data, width, height };
 }
 
 export async function saveEditParams(
