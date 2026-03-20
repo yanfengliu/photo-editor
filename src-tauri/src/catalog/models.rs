@@ -57,7 +57,7 @@ pub struct ImportProgress {
     pub current_file: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CurvePoint {
     pub x: f32,
     pub y: f32,
@@ -137,5 +137,140 @@ impl Default for EditParams {
             hsl_saturation: [0.0; 8],
             hsl_luminance: [0.0; 8],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_edit_params_default() {
+        let params = EditParams::default();
+        assert_eq!(params.exposure, 0.0);
+        assert_eq!(params.contrast, 0.0);
+        assert_eq!(params.temperature, 6500.0);
+        assert_eq!(params.tint, 0.0);
+        assert_eq!(params.saturation, 0.0);
+        assert_eq!(params.vibrance, 0.0);
+        assert_eq!(params.sharpening_amount, 0.0);
+        assert_eq!(params.sharpening_radius, 1.0);
+        assert_eq!(params.denoise_luminance, 0.0);
+        assert_eq!(params.denoise_color, 0.0);
+        assert!(!params.denoise_ai);
+        assert_eq!(params.vignette_amount, 0.0);
+        assert_eq!(params.grain_amount, 0.0);
+        assert_eq!(params.grain_size, 25.0);
+        assert_eq!(params.dehaze, 0.0);
+        assert_eq!(params.clarity, 0.0);
+    }
+
+    #[test]
+    fn test_edit_params_default_curves() {
+        let params = EditParams::default();
+        assert_eq!(params.curve_rgb.len(), 2);
+        assert_eq!(params.curve_rgb[0].x, 0.0);
+        assert_eq!(params.curve_rgb[0].y, 0.0);
+        assert_eq!(params.curve_rgb[1].x, 1.0);
+        assert_eq!(params.curve_rgb[1].y, 1.0);
+        assert_eq!(params.curve_r, params.curve_rgb);
+        assert_eq!(params.curve_g, params.curve_rgb);
+        assert_eq!(params.curve_b, params.curve_rgb);
+    }
+
+    #[test]
+    fn test_edit_params_default_hsl() {
+        let params = EditParams::default();
+        assert_eq!(params.hsl_hue, [0.0; 8]);
+        assert_eq!(params.hsl_saturation, [0.0; 8]);
+        assert_eq!(params.hsl_luminance, [0.0; 8]);
+    }
+
+    #[test]
+    fn test_edit_params_serialization() {
+        let params = EditParams::default();
+        let json = serde_json::to_string(&params).unwrap();
+        let deserialized: EditParams = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.exposure, params.exposure);
+        assert_eq!(deserialized.temperature, params.temperature);
+        assert_eq!(deserialized.curve_rgb.len(), params.curve_rgb.len());
+    }
+
+    #[test]
+    fn test_edit_params_custom_serialization() {
+        let mut params = EditParams::default();
+        params.exposure = 2.5;
+        params.contrast = -30.0;
+        params.temperature = 4000.0;
+        let json = serde_json::to_string(&params).unwrap();
+        let deserialized: EditParams = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.exposure, 2.5);
+        assert_eq!(deserialized.contrast, -30.0);
+        assert_eq!(deserialized.temperature, 4000.0);
+    }
+
+    #[test]
+    fn test_image_record_serialization() {
+        let record = ImageRecord {
+            id: "test-id".to_string(),
+            file_path: "/photos/test.jpg".to_string(),
+            file_name: "test.jpg".to_string(),
+            format: "jpeg".to_string(),
+            width: 1920,
+            height: 1080,
+            date_taken: Some("2024-01-15".to_string()),
+            rating: 5,
+            color_label: "red".to_string(),
+            flag: "picked".to_string(),
+            camera: Some("Canon EOS R5".to_string()),
+            lens: Some("RF 24-70mm".to_string()),
+            iso: Some(400),
+            focal_length: Some(50.0),
+            aperture: Some(2.8),
+            shutter_speed: Some("1/250".to_string()),
+            edit_params: None,
+            tags: vec!["landscape".to_string()],
+            created_at: "2024-01-15T00:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&record).unwrap();
+        assert!(json.contains("test-id"));
+        assert!(json.contains("Canon EOS R5"));
+    }
+
+    #[test]
+    fn test_collection_record() {
+        let col = CollectionRecord {
+            id: "col-1".to_string(),
+            name: "Favorites".to_string(),
+            parent_id: None,
+            image_count: 42,
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        assert_eq!(col.name, "Favorites");
+        assert_eq!(col.image_count, 42);
+        assert!(col.parent_id.is_none());
+    }
+
+    #[test]
+    fn test_history_entry() {
+        let entry = HistoryEntry {
+            id: "h-1".to_string(),
+            image_id: "img-1".to_string(),
+            action: "edit".to_string(),
+            params_json: "{}".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        assert_eq!(entry.action, "edit");
+    }
+
+    #[test]
+    fn test_curve_point() {
+        let pt = CurvePoint { x: 0.5, y: 0.7 };
+        assert_eq!(pt.x, 0.5);
+        assert_eq!(pt.y, 0.7);
+        let json = serde_json::to_string(&pt).unwrap();
+        let deserialized: CurvePoint = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.x, 0.5);
+        assert_eq!(deserialized.y, 0.7);
     }
 }

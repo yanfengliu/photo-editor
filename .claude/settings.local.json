@@ -11,7 +11,11 @@
       "Read(//c/Users/38909/Documents/github/photo-editor/$USERPROFILE/.cargo/**)",
       "Bash(npm install:*)",
       "Bash(npx tsc:*)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(npx vitest:*)",
+      "Bash(grep -l \"export function\\\\|export const\" /c/Users/38909/Documents/github/photo-editor/src/components/develop/panels/*.tsx)",
+      "Bash(grep:*)",
+      "Bash(wc:*)"
     ]
   }
 }

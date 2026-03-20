@@ -138,3 +138,176 @@ fn dirs_next_data() -> Option<PathBuf> {
             .or_else(|| std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".local/share")))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_test_db() -> Database {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+        conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+        let db = Database { conn };
+        db.create_tables().unwrap();
+        db
+    }
+
+    #[test]
+    fn test_create_database() {
+        let db = make_test_db();
+        // Verify tables exist
+        let count: i32 = db.conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='images'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_all_tables_created() {
+        let db = make_test_db();
+        let tables = ["images", "tags", "image_tags", "collections", "collection_images", "edit_history", "snapshots", "presets"];
+        for table in &tables {
+            let count: i32 = db.conn.query_row(
+                &format!("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{}'", table),
+                [],
+                |row| row.get(0),
+            ).unwrap();
+            assert_eq!(count, 1, "Table {} should exist", table);
+        }
+    }
+
+    #[test]
+    fn test_insert_and_query_image() {
+        let db = make_test_db();
+        db.conn.execute(
+            "INSERT INTO images (id, file_path, file_name, format, width, height) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params!["img-1", "/photos/test.jpg", "test.jpg", "jpeg", 1920, 1080],
+        ).unwrap();
+
+        let file_name: String = db.conn.query_row(
+            "SELECT file_name FROM images WHERE id = 'img-1'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(file_name, "test.jpg");
+    }
+
+    #[test]
+    fn test_unique_file_path() {
+        let db = make_test_db();
+        db.conn.execute(
+            "INSERT INTO images (id, file_path, file_name, format, width, height) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params!["img-1", "/photos/test.jpg", "test.jpg", "jpeg", 1920, 1080],
+        ).unwrap();
+
+        let result = db.conn.execute(
+            "INSERT INTO images (id, file_path, file_name, format, width, height) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params!["img-2", "/photos/test.jpg", "test.jpg", "jpeg", 1920, 1080],
+        );
+        assert!(result.is_err(), "Duplicate file_path should fail");
+    }
+
+    #[test]
+    fn test_default_values() {
+        let db = make_test_db();
+        db.conn.execute(
+            "INSERT INTO images (id, file_path, file_name) VALUES (?1, ?2, ?3)",
+            params!["img-1", "/photos/test.jpg", "test.jpg"],
+        ).unwrap();
+
+        let (rating, color_label, flag): (i32, String, String) = db.conn.query_row(
+            "SELECT rating, color_label, flag FROM images WHERE id = 'img-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+
+        assert_eq!(rating, 0);
+        assert_eq!(color_label, "none");
+        assert_eq!(flag, "none");
+    }
+
+    #[test]
+    fn test_cascade_delete() {
+        let db = make_test_db();
+        db.conn.execute(
+            "INSERT INTO images (id, file_path, file_name) VALUES (?1, ?2, ?3)",
+            params!["img-1", "/photos/test.jpg", "test.jpg"],
+        ).unwrap();
+        db.conn.execute(
+            "INSERT INTO edit_history (id, image_id, action, params_json) VALUES (?1, ?2, ?3, ?4)",
+            params!["h-1", "img-1", "edit", "{}"],
+        ).unwrap();
+
+        db.conn.execute("DELETE FROM images WHERE id = 'img-1'", []).unwrap();
+
+        let count: i32 = db.conn.query_row(
+            "SELECT COUNT(*) FROM edit_history WHERE image_id = 'img-1'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 0, "Edit history should be cascade deleted");
+    }
+
+    #[test]
+    fn test_tags_and_image_tags() {
+        let db = make_test_db();
+        db.conn.execute(
+            "INSERT INTO images (id, file_path, file_name) VALUES (?1, ?2, ?3)",
+            params!["img-1", "/photos/test.jpg", "test.jpg"],
+        ).unwrap();
+        db.conn.execute(
+            "INSERT INTO tags (id, name) VALUES (?1, ?2)",
+            params!["tag-1", "landscape"],
+        ).unwrap();
+        db.conn.execute(
+            "INSERT INTO image_tags (image_id, tag_id) VALUES (?1, ?2)",
+            params!["img-1", "tag-1"],
+        ).unwrap();
+
+        let tag_name: String = db.conn.query_row(
+            "SELECT t.name FROM tags t JOIN image_tags it ON t.id = it.tag_id WHERE it.image_id = 'img-1'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(tag_name, "landscape");
+    }
+
+    #[test]
+    fn test_collections() {
+        let db = make_test_db();
+        db.conn.execute(
+            "INSERT INTO collections (id, name) VALUES (?1, ?2)",
+            params!["col-1", "Favorites"],
+        ).unwrap();
+
+        let name: String = db.conn.query_row(
+            "SELECT name FROM collections WHERE id = 'col-1'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(name, "Favorites");
+    }
+
+    #[test]
+    fn test_indexes_exist() {
+        let db = make_test_db();
+        let indexes = [
+            "idx_images_date_taken",
+            "idx_images_rating",
+            "idx_images_color_label",
+            "idx_images_flag",
+            "idx_images_camera",
+            "idx_images_file_path",
+        ];
+        for idx in &indexes {
+            let count: i32 = db.conn.query_row(
+                &format!("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='{}'", idx),
+                [],
+                |row| row.get(0),
+            ).unwrap();
+            assert_eq!(count, 1, "Index {} should exist", idx);
+        }
+    }
+}

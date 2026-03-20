@@ -102,3 +102,86 @@ pub async fn batch_export(
     }
     Ok(results)
 }
+
+#[tauri::command]
+pub async fn export_xmp_sidecar(
+    state: State<'_, AppState>,
+    image_id: String,
+    output_path: Option<String>,
+) -> Result<String, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let record = crate::catalog::queries::get_image_by_id(&db, &image_id)
+        .map_err(|e| e.to_string())?;
+
+    let edit_params: EditParams = match record.edit_params {
+        Some(ref json) => serde_json::from_str(json).unwrap_or_default(),
+        None => EditParams::default(),
+    };
+
+    let xmp_path = match output_path {
+        Some(p) => p,
+        None => {
+            let src = std::path::Path::new(&record.file_path);
+            src.with_extension("xmp").to_string_lossy().to_string()
+        }
+    };
+
+    let xmp = generate_xmp(&record, &edit_params);
+    std::fs::write(&xmp_path, xmp).map_err(|e| e.to_string())?;
+    Ok(xmp_path)
+}
+
+fn generate_xmp(record: &crate::catalog::models::ImageRecord, params: &EditParams) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+    xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+    crs:Version="15.0"
+    crs:Exposure2012="{exposure:.2}"
+    crs:Contrast2012="{contrast}"
+    crs:Highlights2012="{highlights}"
+    crs:Shadows2012="{shadows}"
+    crs:Whites2012="{whites}"
+    crs:Blacks2012="{blacks}"
+    crs:Temperature="{temperature}"
+    crs:Tint="{tint}"
+    crs:Saturation="{saturation}"
+    crs:Vibrance="{vibrance}"
+    crs:Clarity2012="{clarity}"
+    crs:Dehaze="{dehaze}"
+    crs:Sharpness="{sharpening_amount}"
+    crs:SharpenRadius="{sharpening_radius:.1}"
+    crs:LuminanceSmoothing="{denoise_luminance}"
+    crs:ColorNoiseReduction="{denoise_color}"
+    crs:PostCropVignetteAmount="{vignette_amount}"
+    crs:GrainAmount="{grain_amount}"
+    crs:GrainSize="{grain_size}"
+    xmp:Rating="{rating}">
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>"#,
+        exposure = params.exposure,
+        contrast = params.contrast as i32,
+        highlights = params.highlights as i32,
+        shadows = params.shadows as i32,
+        whites = params.whites as i32,
+        blacks = params.blacks as i32,
+        temperature = params.temperature as i32,
+        tint = params.tint as i32,
+        saturation = params.saturation as i32,
+        vibrance = params.vibrance as i32,
+        clarity = params.clarity as i32,
+        dehaze = params.dehaze as i32,
+        sharpening_amount = params.sharpening_amount as i32,
+        sharpening_radius = params.sharpening_radius,
+        denoise_luminance = params.denoise_luminance as i32,
+        denoise_color = params.denoise_color as i32,
+        vignette_amount = params.vignette_amount as i32,
+        grain_amount = params.grain_amount as i32,
+        grain_size = params.grain_size as i32,
+        rating = record.rating,
+    )
+}

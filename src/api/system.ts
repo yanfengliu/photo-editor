@@ -31,3 +31,10 @@ export async function batchExport(
 ): Promise<string[]> {
   return invoke("batch_export", { imageIds, settings });
 }
+
+export async function exportXmpSidecar(
+  imageId: string,
+  outputPath?: string
+): Promise<string> {
+  return invoke("export_xmp_sidecar", { imageId, outputPath: outputPath ?? null });
+}

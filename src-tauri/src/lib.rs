@@ -44,6 +44,7 @@ pub fn run() {
             commands::develop::paste_edits,
             commands::export::export_image,
             commands::export::batch_export,
+            commands::export::export_xmp_sidecar,
             commands::system::browse_folder,
             commands::system::get_gpu_info,
             commands::system::get_app_config,
