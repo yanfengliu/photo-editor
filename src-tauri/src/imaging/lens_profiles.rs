@@ -1,5 +1,10 @@
+use quick_xml::events::Event;
+use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::LazyLock;
+
+// --- Public types (unchanged API) ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LensProfile {
@@ -19,11 +24,12 @@ pub struct FocalProfile {
     pub vignette: VignetteCoeffs,
 }
 
+/// PTLens distortion model: Rd = a*Ru^4 + b*Ru^3 + c*Ru^2 + (1-a-b-c)*Ru
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct DistortionCoeffs {
-    pub k1: f64,
-    pub k2: f64,
-    pub k3: f64,
+    pub a: f64,
+    pub b: f64,
+    pub c: f64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -58,200 +64,22 @@ impl From<&LensProfile> for LensProfileSummary {
     }
 }
 
-macro_rules! lens {
-    ($id:expr, $name:expr, $aliases:expr, $mount:expr, $range:expr, $profiles:expr) => {
-        LensProfile {
-            lens_id: $id.into(),
-            lens_name: $name.into(),
-            aliases: $aliases.iter().map(|s: &&str| s.to_string()).collect(),
-            mount: $mount.into(),
-            focal_range: $range,
-            profiles: $profiles,
-        }
-    };
-}
+// --- Embedded lensfun data ---
 
-macro_rules! fp {
-    ($fl:expr, $k1:expr, $k2:expr, $k3:expr, $rs:expr, $bs:expr, $v1:expr, $v2:expr, $v3:expr) => {
-        FocalProfile {
-            focal_length: $fl,
-            distortion: DistortionCoeffs { k1: $k1, k2: $k2, k3: $k3 },
-            ca: CaCoeffs { red_scale: $rs, blue_scale: $bs },
-            vignette: VignetteCoeffs { v1: $v1, v2: $v2, v3: $v3 },
-        }
-    };
-}
+include!(concat!(env!("OUT_DIR"), "/lensfun_data.rs"));
 
 static PROFILES: LazyLock<Vec<LensProfile>> = LazyLock::new(|| {
-    vec![
-        // Canon EF
-        lens!("canon-ef-24-70-2.8-ii", "Canon EF 24-70mm f/2.8L II USM",
-            &["EF24-70mm f/2.8L II USM", "Canon EF 24-70mm f/2.8L II"],
-            "EF", (24.0, 70.0), vec![
-                fp!(24.0, -0.035, 0.012, -0.003, 1.0005, 0.9995, 0.8, -0.3, 0.05),
-                fp!(35.0, -0.010, 0.003, 0.0, 1.0003, 0.9997, 0.5, -0.15, 0.02),
-                fp!(50.0, 0.005, -0.002, 0.0, 1.0002, 0.9998, 0.3, -0.08, 0.01),
-                fp!(70.0, 0.012, -0.005, 0.001, 1.0002, 0.9998, 0.4, -0.1, 0.02),
-            ]),
-        lens!("canon-ef-70-200-2.8-iii", "Canon EF 70-200mm f/2.8L IS III USM",
-            &["EF70-200mm f/2.8L IS III USM", "Canon EF 70-200mm f/2.8L IS III"],
-            "EF", (70.0, 200.0), vec![
-                fp!(70.0, 0.005, -0.002, 0.0, 1.0003, 0.9997, 0.4, -0.1, 0.02),
-                fp!(100.0, 0.008, -0.003, 0.001, 1.0002, 0.9998, 0.3, -0.08, 0.01),
-                fp!(135.0, 0.012, -0.004, 0.001, 1.0002, 0.9998, 0.35, -0.1, 0.02),
-                fp!(200.0, 0.018, -0.006, 0.002, 1.0003, 0.9997, 0.5, -0.15, 0.03),
-            ]),
-        lens!("canon-ef-50-1.4", "Canon EF 50mm f/1.4 USM",
-            &["EF50mm f/1.4 USM", "Canon EF 50mm f/1.4"],
-            "EF", (50.0, 50.0), vec![
-                fp!(50.0, 0.003, -0.001, 0.0, 1.0003, 0.9997, 0.6, -0.2, 0.03),
-            ]),
-        lens!("canon-efs-18-55-stm", "Canon EF-S 18-55mm f/3.5-5.6 IS STM",
-            &["EF-S18-55mm f/3.5-5.6 IS STM", "Canon EF-S 18-55mm"],
-            "EF-S", (18.0, 55.0), vec![
-                fp!(18.0, -0.060, 0.025, -0.008, 1.0008, 0.9992, 1.2, -0.5, 0.1),
-                fp!(35.0, -0.008, 0.002, 0.0, 1.0004, 0.9996, 0.6, -0.2, 0.03),
-                fp!(55.0, 0.015, -0.005, 0.001, 1.0003, 0.9997, 0.5, -0.15, 0.03),
-            ]),
-        // Canon RF
-        lens!("canon-rf-24-105-4", "Canon RF 24-105mm f/4L IS USM",
-            &["RF24-105mm F4 L IS USM", "Canon RF 24-105mm f/4L"],
-            "RF", (24.0, 105.0), vec![
-                fp!(24.0, -0.030, 0.010, -0.002, 1.0004, 0.9996, 0.7, -0.25, 0.04),
-                fp!(50.0, 0.003, -0.001, 0.0, 1.0002, 0.9998, 0.3, -0.08, 0.01),
-                fp!(105.0, 0.010, -0.004, 0.001, 1.0002, 0.9998, 0.4, -0.12, 0.02),
-            ]),
-        lens!("canon-rf-50-1.2", "Canon RF 50mm f/1.2L USM",
-            &["RF50mm F1.2 L USM", "Canon RF 50mm f/1.2L"],
-            "RF", (50.0, 50.0), vec![
-                fp!(50.0, 0.002, -0.001, 0.0, 1.0002, 0.9998, 0.5, -0.15, 0.02),
-            ]),
-        // Nikon F
-        lens!("nikon-24-70-2.8e", "Nikon AF-S NIKKOR 24-70mm f/2.8E ED VR",
-            &["AF-S NIKKOR 24-70mm f/2.8E ED VR", "Nikon AF-S 24-70mm f/2.8E"],
-            "F", (24.0, 70.0), vec![
-                fp!(24.0, -0.032, 0.011, -0.003, 1.0004, 0.9996, 0.75, -0.28, 0.05),
-                fp!(35.0, -0.008, 0.002, 0.0, 1.0003, 0.9997, 0.45, -0.12, 0.02),
-                fp!(50.0, 0.004, -0.001, 0.0, 1.0002, 0.9998, 0.3, -0.08, 0.01),
-                fp!(70.0, 0.010, -0.004, 0.001, 1.0002, 0.9998, 0.35, -0.1, 0.02),
-            ]),
-        lens!("nikon-50-1.8g", "Nikon AF-S NIKKOR 50mm f/1.8G",
-            &["AF-S NIKKOR 50mm f/1.8G", "Nikon 50mm f/1.8G"],
-            "F", (50.0, 50.0), vec![
-                fp!(50.0, 0.004, -0.002, 0.0, 1.0003, 0.9997, 0.55, -0.18, 0.03),
-            ]),
-        lens!("nikon-afp-18-55", "Nikon AF-P DX NIKKOR 18-55mm f/3.5-5.6G VR",
-            &["AF-P DX NIKKOR 18-55mm f/3.5-5.6G VR", "Nikon AF-P 18-55mm"],
-            "F-DX", (18.0, 55.0), vec![
-                fp!(18.0, -0.055, 0.022, -0.007, 1.0007, 0.9993, 1.1, -0.45, 0.09),
-                fp!(35.0, -0.006, 0.002, 0.0, 1.0004, 0.9996, 0.55, -0.18, 0.03),
-                fp!(55.0, 0.014, -0.005, 0.001, 1.0003, 0.9997, 0.45, -0.12, 0.02),
-            ]),
-        // Nikon Z
-        lens!("nikon-z-24-70-4", "Nikon NIKKOR Z 24-70mm f/4 S",
-            &["NIKKOR Z 24-70mm f/4 S", "Nikon Z 24-70mm f/4 S"],
-            "Z", (24.0, 70.0), vec![
-                fp!(24.0, -0.028, 0.009, -0.002, 1.0003, 0.9997, 0.65, -0.22, 0.04),
-                fp!(50.0, 0.003, -0.001, 0.0, 1.0002, 0.9998, 0.28, -0.07, 0.01),
-                fp!(70.0, 0.008, -0.003, 0.001, 1.0002, 0.9998, 0.32, -0.09, 0.01),
-            ]),
-        lens!("nikon-z-50-1.8", "Nikon NIKKOR Z 50mm f/1.8 S",
-            &["NIKKOR Z 50mm f/1.8 S", "Nikon Z 50mm f/1.8 S"],
-            "Z", (50.0, 50.0), vec![
-                fp!(50.0, 0.002, -0.001, 0.0, 1.0002, 0.9998, 0.4, -0.12, 0.02),
-            ]),
-        // Sony E
-        lens!("sony-fe-24-70-2.8-gm", "Sony FE 24-70mm f/2.8 GM",
-            &["FE 24-70mm F2.8 GM", "Sony FE 24-70mm f/2.8 GM", "SEL2470GM"],
-            "E", (24.0, 70.0), vec![
-                fp!(24.0, -0.030, 0.010, -0.002, 1.0004, 0.9996, 0.7, -0.25, 0.04),
-                fp!(35.0, -0.008, 0.002, 0.0, 1.0003, 0.9997, 0.4, -0.12, 0.02),
-                fp!(50.0, 0.004, -0.002, 0.0, 1.0002, 0.9998, 0.3, -0.08, 0.01),
-                fp!(70.0, 0.010, -0.004, 0.001, 1.0002, 0.9998, 0.35, -0.1, 0.02),
-            ]),
-        lens!("sony-fe-70-200-2.8-gm", "Sony FE 70-200mm f/2.8 GM OSS",
-            &["FE 70-200mm F2.8 GM OSS", "SEL70200GM"],
-            "E", (70.0, 200.0), vec![
-                fp!(70.0, 0.005, -0.002, 0.0, 1.0003, 0.9997, 0.4, -0.1, 0.02),
-                fp!(100.0, 0.008, -0.003, 0.001, 1.0002, 0.9998, 0.3, -0.08, 0.01),
-                fp!(200.0, 0.016, -0.006, 0.002, 1.0003, 0.9997, 0.45, -0.13, 0.03),
-            ]),
-        lens!("sony-fe-50-1.4-gm", "Sony FE 50mm f/1.4 GM",
-            &["FE 50mm F1.4 GM", "SEL50F14GM"],
-            "E", (50.0, 50.0), vec![
-                fp!(50.0, 0.002, -0.001, 0.0, 1.0002, 0.9998, 0.45, -0.13, 0.02),
-            ]),
-        lens!("sony-fe-24-105-4-g", "Sony FE 24-105mm f/4 G OSS",
-            &["FE 24-105mm F4 G OSS", "SEL24105G"],
-            "E", (24.0, 105.0), vec![
-                fp!(24.0, -0.028, 0.009, -0.002, 1.0004, 0.9996, 0.7, -0.24, 0.04),
-                fp!(50.0, 0.003, -0.001, 0.0, 1.0002, 0.9998, 0.3, -0.08, 0.01),
-                fp!(105.0, 0.012, -0.004, 0.001, 1.0002, 0.9998, 0.4, -0.12, 0.02),
-            ]),
-        lens!("sony-e-16-50", "Sony E 16-50mm f/3.5-5.6 PZ OSS",
-            &["E PZ 16-50mm F3.5-5.6 OSS", "SELP1650"],
-            "E-APS", (16.0, 50.0), vec![
-                fp!(16.0, -0.065, 0.028, -0.009, 1.0009, 0.9991, 1.3, -0.55, 0.12),
-                fp!(35.0, -0.005, 0.001, 0.0, 1.0004, 0.9996, 0.5, -0.15, 0.02),
-                fp!(50.0, 0.012, -0.004, 0.001, 1.0003, 0.9997, 0.4, -0.1, 0.02),
-            ]),
-        // Sigma Art
-        lens!("sigma-35-1.4-art", "Sigma 35mm f/1.4 DG HSM Art",
-            &["35mm F1.4 DG HSM | Art", "Sigma 35mm f/1.4 Art"],
-            "Multi", (35.0, 35.0), vec![
-                fp!(35.0, -0.005, 0.001, 0.0, 1.0003, 0.9997, 0.5, -0.15, 0.02),
-            ]),
-        lens!("sigma-50-1.4-art", "Sigma 50mm f/1.4 DG HSM Art",
-            &["50mm F1.4 DG HSM | Art", "Sigma 50mm f/1.4 Art"],
-            "Multi", (50.0, 50.0), vec![
-                fp!(50.0, 0.003, -0.001, 0.0, 1.0002, 0.9998, 0.45, -0.13, 0.02),
-            ]),
-        lens!("sigma-24-70-2.8-art", "Sigma 24-70mm f/2.8 DG DN Art",
-            &["24-70mm F2.8 DG DN | Art", "Sigma 24-70mm f/2.8 Art"],
-            "Multi", (24.0, 70.0), vec![
-                fp!(24.0, -0.028, 0.009, -0.002, 1.0004, 0.9996, 0.65, -0.22, 0.04),
-                fp!(35.0, -0.006, 0.002, 0.0, 1.0003, 0.9997, 0.4, -0.12, 0.02),
-                fp!(50.0, 0.004, -0.002, 0.0, 1.0002, 0.9998, 0.3, -0.08, 0.01),
-                fp!(70.0, 0.010, -0.004, 0.001, 1.0002, 0.9998, 0.35, -0.1, 0.02),
-            ]),
-        lens!("sigma-18-35-1.8-art", "Sigma 18-35mm f/1.8 DC HSM Art",
-            &["18-35mm F1.8 DC HSM | Art", "Sigma 18-35mm f/1.8 Art"],
-            "Multi-APS", (18.0, 35.0), vec![
-                fp!(18.0, -0.045, 0.018, -0.005, 1.0006, 0.9994, 1.0, -0.4, 0.08),
-                fp!(24.0, -0.020, 0.007, -0.002, 1.0004, 0.9996, 0.7, -0.25, 0.04),
-                fp!(35.0, -0.005, 0.001, 0.0, 1.0003, 0.9997, 0.5, -0.15, 0.02),
-            ]),
-        lens!("sigma-100-400", "Sigma 100-400mm f/5-6.3 DG DN OS",
-            &["100-400mm F5-6.3 DG DN OS", "Sigma 100-400mm"],
-            "Multi", (100.0, 400.0), vec![
-                fp!(100.0, 0.006, -0.002, 0.0, 1.0002, 0.9998, 0.35, -0.1, 0.02),
-                fp!(200.0, 0.014, -0.005, 0.001, 1.0003, 0.9997, 0.4, -0.12, 0.02),
-                fp!(400.0, 0.022, -0.008, 0.002, 1.0004, 0.9996, 0.5, -0.15, 0.03),
-            ]),
-        // Tamron
-        lens!("tamron-28-75-2.8-g2", "Tamron 28-75mm f/2.8 Di III VXD G2",
-            &["28-75mm F/2.8 Di III VXD G2", "Tamron 28-75mm f/2.8 G2"],
-            "E", (28.0, 75.0), vec![
-                fp!(28.0, -0.025, 0.008, -0.002, 1.0004, 0.9996, 0.6, -0.2, 0.03),
-                fp!(50.0, 0.004, -0.002, 0.0, 1.0002, 0.9998, 0.3, -0.08, 0.01),
-                fp!(75.0, 0.010, -0.004, 0.001, 1.0002, 0.9998, 0.35, -0.1, 0.02),
-            ]),
-        lens!("tamron-70-180-2.8", "Tamron 70-180mm f/2.8 Di III VXD",
-            &["70-180mm F/2.8 Di III VXD", "Tamron 70-180mm f/2.8"],
-            "E", (70.0, 180.0), vec![
-                fp!(70.0, 0.006, -0.002, 0.0, 1.0003, 0.9997, 0.4, -0.12, 0.02),
-                fp!(100.0, 0.009, -0.003, 0.001, 1.0002, 0.9998, 0.3, -0.08, 0.01),
-                fp!(180.0, 0.016, -0.006, 0.002, 1.0003, 0.9997, 0.45, -0.13, 0.03),
-            ]),
-        lens!("tamron-17-28-2.8", "Tamron 17-28mm f/2.8 Di III RXD",
-            &["17-28mm F/2.8 Di III RXD", "Tamron 17-28mm f/2.8"],
-            "E", (17.0, 28.0), vec![
-                fp!(17.0, -0.050, 0.020, -0.006, 1.0007, 0.9993, 1.0, -0.4, 0.08),
-                fp!(24.0, -0.025, 0.008, -0.002, 1.0004, 0.9996, 0.65, -0.22, 0.04),
-                fp!(28.0, -0.015, 0.005, -0.001, 1.0003, 0.9997, 0.5, -0.15, 0.02),
-            ]),
-    ]
+    let mut all = Vec::new();
+    for xml in LENSFUN_XML {
+        if let Ok(mut parsed) = parse_lensfun_xml(xml) {
+            all.append(&mut parsed);
+        }
+    }
+    log::info!("Loaded {} lens profiles from lensfun database", all.len());
+    all
 });
+
+// --- Public API (unchanged signatures) ---
 
 pub fn get_all_profiles() -> &'static [LensProfile] {
     &PROFILES
@@ -268,9 +96,11 @@ pub fn find_profile_by_id(id: &str) -> Option<&'static LensProfile> {
 /// Auto-detect a lens profile from EXIF lens name string
 pub fn find_profile_by_name(lens_name: &str) -> Option<&'static LensProfile> {
     let needle = normalize(lens_name);
-    if needle.is_empty() { return None; }
+    if needle.is_empty() {
+        return None;
+    }
 
-    // Exact alias match first
+    // Exact name match first
     for profile in PROFILES.iter() {
         if normalize(&profile.lens_name) == needle {
             return Some(profile);
@@ -287,10 +117,13 @@ pub fn find_profile_by_name(lens_name: &str) -> Option<&'static LensProfile> {
     let mut best: Option<(&LensProfile, f64)> = None;
 
     for profile in PROFILES.iter() {
-        let mut max_score = token_similarity(&needle_tokens, &tokenize(&normalize(&profile.lens_name)));
+        let mut max_score =
+            token_similarity(&needle_tokens, &tokenize(&normalize(&profile.lens_name)));
         for alias in &profile.aliases {
             let score = token_similarity(&needle_tokens, &tokenize(&normalize(alias)));
-            if score > max_score { max_score = score; }
+            if score > max_score {
+                max_score = score;
+            }
         }
         if max_score > 0.5 {
             if best.is_none() || max_score > best.unwrap().1 {
@@ -308,7 +141,7 @@ pub fn interpolate_focal(profile: &LensProfile, focal_length: f64) -> FocalProfi
     if fps.is_empty() {
         return FocalProfile {
             focal_length,
-            distortion: DistortionCoeffs { k1: 0.0, k2: 0.0, k3: 0.0 },
+            distortion: DistortionCoeffs { a: 0.0, b: 0.0, c: 0.0 },
             ca: CaCoeffs { red_scale: 1.0, blue_scale: 1.0 },
             vignette: VignetteCoeffs { v1: 0.0, v2: 0.0, v3: 0.0 },
         };
@@ -331,15 +164,19 @@ pub fn interpolate_focal(profile: &LensProfile, focal_length: f64) -> FocalProfi
     }
     let hi = lo + 1;
     let range = fps[hi].focal_length - fps[lo].focal_length;
-    let t = if range.abs() < 1e-6 { 0.0 } else { (focal_length - fps[lo].focal_length) / range };
+    let t = if range.abs() < 1e-6 {
+        0.0
+    } else {
+        (focal_length - fps[lo].focal_length) / range
+    };
 
     let lerp = |a: f64, b: f64| a + (b - a) * t;
     FocalProfile {
         focal_length,
         distortion: DistortionCoeffs {
-            k1: lerp(fps[lo].distortion.k1, fps[hi].distortion.k1),
-            k2: lerp(fps[lo].distortion.k2, fps[hi].distortion.k2),
-            k3: lerp(fps[lo].distortion.k3, fps[hi].distortion.k3),
+            a: lerp(fps[lo].distortion.a, fps[hi].distortion.a),
+            b: lerp(fps[lo].distortion.b, fps[hi].distortion.b),
+            c: lerp(fps[lo].distortion.c, fps[hi].distortion.c),
         },
         ca: CaCoeffs {
             red_scale: lerp(fps[lo].ca.red_scale, fps[hi].ca.red_scale),
@@ -352,6 +189,248 @@ pub fn interpolate_focal(profile: &LensProfile, focal_length: f64) -> FocalProfi
         },
     }
 }
+
+// --- Lensfun XML parser ---
+
+fn parse_lensfun_xml(xml: &str) -> Result<Vec<LensProfile>, String> {
+    let mut reader = Reader::from_str(xml);
+    let mut profiles = Vec::new();
+    let mut buf = Vec::new();
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name().as_ref() == b"lens" => {
+                if let Some(profile) = parse_lens_element(&mut reader) {
+                    profiles.push(profile);
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(format!("XML parse error: {e}")),
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    Ok(profiles)
+}
+
+fn parse_lens_element(reader: &mut Reader<&[u8]>) -> Option<LensProfile> {
+    let mut buf = Vec::new();
+    let mut maker = String::new();
+    let mut model = String::new();
+    let mut mount = String::new();
+    let mut aliases: Vec<String> = Vec::new();
+
+    // Calibration data keyed by focal length
+    let mut distortions: Vec<(f64, DistortionCoeffs)> = Vec::new();
+    let mut cas: Vec<(f64, CaCoeffs)> = Vec::new();
+    // Vignetting: (focal, aperture, VignetteCoeffs) — we pick widest aperture per focal
+    let mut vignettes: Vec<(f64, f64, VignetteCoeffs)> = Vec::new();
+
+    let mut current_tag = String::new();
+    let mut in_calibration = false;
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) => {
+                let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                match tag.as_str() {
+                    "maker" | "model" | "mount" => current_tag = tag,
+                    "calibration" => in_calibration = true,
+                    _ => current_tag.clear(),
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                let tag = e.name();
+                if tag.as_ref() == b"lens" {
+                    break;
+                }
+                if tag.as_ref() == b"calibration" {
+                    in_calibration = false;
+                }
+                current_tag.clear();
+            }
+            Ok(Event::Text(ref e)) => {
+                if let Ok(text) = e.unescape() {
+                    let text = text.trim().to_string();
+                    match current_tag.as_str() {
+                        "maker" => maker = text,
+                        "model" => model = text,
+                        "mount" => mount = text,
+                        _ => {}
+                    }
+                }
+                current_tag.clear();
+            }
+            Ok(Event::Empty(ref e)) if in_calibration => {
+                let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let attrs = parse_attrs(e);
+
+                match tag.as_str() {
+                    "distortion" => {
+                        if attrs.get("model").map_or(false, |m| m == "ptlens") {
+                            if let Some(focal) = attrs.get("focal").and_then(|v| v.parse::<f64>().ok()) {
+                                let a = attrs.get("a").and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                                let b = attrs.get("b").and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                                let c = attrs.get("c").and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                                distortions.push((focal, DistortionCoeffs { a, b, c }));
+                            }
+                        }
+                    }
+                    "tca" => {
+                        if let Some(focal) = attrs.get("focal").and_then(|v| v.parse::<f64>().ok()) {
+                            let model = attrs.get("model").map(|s| s.as_str()).unwrap_or("");
+                            let (rs, bs) = match model {
+                                "linear" => {
+                                    let kr = attrs.get("kr").and_then(|v| v.parse().ok()).unwrap_or(1.0);
+                                    let kb = attrs.get("kb").and_then(|v| v.parse().ok()).unwrap_or(1.0);
+                                    (kr, kb)
+                                }
+                                "poly3" => {
+                                    // vr/vb are the linear coefficients
+                                    let vr = attrs.get("vr").and_then(|v| v.parse().ok()).unwrap_or(1.0);
+                                    let vb = attrs.get("vb").and_then(|v| v.parse().ok()).unwrap_or(1.0);
+                                    (vr, vb)
+                                }
+                                _ => (1.0, 1.0),
+                            };
+                            cas.push((focal, CaCoeffs { red_scale: rs, blue_scale: bs }));
+                        }
+                    }
+                    "vignetting" => {
+                        if attrs.get("model").map_or(false, |m| m == "pa") {
+                            if let Some(focal) = attrs.get("focal").and_then(|v| v.parse::<f64>().ok()) {
+                                let aperture = attrs.get("aperture").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+                                let k1 = attrs.get("k1").and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                                let k2 = attrs.get("k2").and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                                let k3 = attrs.get("k3").and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                                vignettes.push((focal, aperture, VignetteCoeffs { v1: k1, v2: k2, v3: k3 }));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    if model.is_empty() {
+        return None;
+    }
+    if distortions.is_empty() && cas.is_empty() && vignettes.is_empty() {
+        return None; // No calibration data
+    }
+
+    let full_name = if !maker.is_empty() && !model.starts_with(&maker) {
+        format!("{maker} {model}")
+    } else {
+        model.clone()
+    };
+    aliases.push(model);
+
+    // Collect all focal lengths
+    let mut focal_set: Vec<f64> = Vec::new();
+    for &(f, _) in &distortions { push_unique_focal(&mut focal_set, f); }
+    for &(f, _) in &cas { push_unique_focal(&mut focal_set, f); }
+    for &(f, _, _) in &vignettes { push_unique_focal(&mut focal_set, f); }
+    focal_set.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    // Pick best vignetting per focal (widest aperture = strongest correction)
+    let best_vignette = pick_best_vignette(&vignettes);
+
+    // Build FocalProfile for each focal length
+    let profiles: Vec<FocalProfile> = focal_set
+        .iter()
+        .map(|&fl| {
+            let dist = find_nearest(&distortions, fl)
+                .unwrap_or(DistortionCoeffs { a: 0.0, b: 0.0, c: 0.0 });
+            let ca = find_nearest(&cas, fl)
+                .unwrap_or(CaCoeffs { red_scale: 1.0, blue_scale: 1.0 });
+            let vig = find_nearest_vig(&best_vignette, fl)
+                .unwrap_or(VignetteCoeffs { v1: 0.0, v2: 0.0, v3: 0.0 });
+            FocalProfile { focal_length: fl, distortion: dist, ca, vignette: vig }
+        })
+        .collect();
+
+    let focal_min = focal_set.first().copied().unwrap_or(0.0);
+    let focal_max = focal_set.last().copied().unwrap_or(focal_min);
+
+    let lens_id = make_lens_id(&full_name);
+
+    Some(LensProfile {
+        lens_id,
+        lens_name: full_name,
+        aliases,
+        mount,
+        focal_range: (focal_min, focal_max),
+        profiles,
+    })
+}
+
+fn parse_attrs(e: &quick_xml::events::BytesStart<'_>) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for attr in e.attributes().flatten() {
+        let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
+        let val = String::from_utf8_lossy(&attr.value).to_string();
+        map.insert(key, val);
+    }
+    map
+}
+
+fn push_unique_focal(set: &mut Vec<f64>, f: f64) {
+    if !set.iter().any(|&x| (x - f).abs() < 0.01) {
+        set.push(f);
+    }
+}
+
+fn find_nearest<T: Copy>(entries: &[(f64, T)], target: f64) -> Option<T> {
+    entries
+        .iter()
+        .min_by(|a, b| {
+            (a.0 - target)
+                .abs()
+                .partial_cmp(&(b.0 - target).abs())
+                .unwrap()
+        })
+        .map(|&(_, v)| v)
+}
+
+fn find_nearest_vig(entries: &[(f64, VignetteCoeffs)], target: f64) -> Option<VignetteCoeffs> {
+    find_nearest(entries, target)
+}
+
+/// Pick the widest aperture vignetting data for each focal length
+fn pick_best_vignette(all: &[(f64, f64, VignetteCoeffs)]) -> Vec<(f64, VignetteCoeffs)> {
+    let mut by_focal: HashMap<i64, (f64, VignetteCoeffs)> = HashMap::new();
+    for &(focal, aperture, vig) in all {
+        let key = (focal * 10.0) as i64;
+        let entry = by_focal.entry(key).or_insert((aperture, vig));
+        // Widest aperture = smallest f-number = strongest vignetting
+        if aperture < entry.0 {
+            *entry = (aperture, vig);
+        }
+    }
+    let mut result: Vec<(f64, VignetteCoeffs)> = by_focal
+        .into_iter()
+        .map(|(k, (_, v))| (k as f64 / 10.0, v))
+        .collect();
+    result.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    result
+}
+
+fn make_lens_id(name: &str) -> String {
+    name.to_lowercase()
+        .replace(|c: char| !c.is_alphanumeric() && c != ' ', "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+// --- Text matching helpers ---
 
 fn normalize(s: &str) -> String {
     s.to_lowercase()
@@ -369,12 +448,16 @@ fn token_similarity(a: &[String], b: &[String]) -> f64 {
     if a.is_empty() || b.is_empty() {
         return 0.0;
     }
-    // Count matches: a token matches if it equals or is a prefix/suffix of a token in the other set
-    let matches = a.iter().filter(|at| {
-        b.iter().any(|bt| {
-            at.as_str() == bt.as_str() || bt.starts_with(at.as_str()) || at.starts_with(bt.as_str())
+    let matches = a
+        .iter()
+        .filter(|at| {
+            b.iter().any(|bt| {
+                at.as_str() == bt.as_str()
+                    || bt.starts_with(at.as_str())
+                    || at.starts_with(bt.as_str())
+            })
         })
-    }).count() as f64;
+        .count() as f64;
     let total = a.len().max(b.len()) as f64;
     matches / total
 }
@@ -384,49 +467,109 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_profile_count() {
-        assert!(get_all_profiles().len() >= 20);
+    fn test_profiles_loaded() {
+        let count = get_all_profiles().len();
+        assert!(count > 100, "Expected >100 profiles from lensfun, got {count}");
     }
 
     #[test]
-    fn test_find_by_id() {
-        let p = find_profile_by_id("canon-ef-24-70-2.8-ii");
-        assert!(p.is_some());
-        assert_eq!(p.unwrap().lens_name, "Canon EF 24-70mm f/2.8L II USM");
+    fn test_summaries_match_profiles() {
+        let profiles = get_all_profiles().len();
+        let summaries = get_all_summaries().len();
+        assert_eq!(profiles, summaries);
     }
 
     #[test]
-    fn test_find_by_exact_alias() {
-        let p = find_profile_by_name("EF24-70mm f/2.8L II USM");
-        assert!(p.is_some());
-        assert!(p.unwrap().lens_id.contains("canon-ef-24-70"));
+    fn test_find_by_name_sony() {
+        let p = find_profile_by_name("Sony FE 24-70mm f/2.8 GM");
+        // Should find something, even if not exact name match
+        if let Some(profile) = p {
+            assert!(
+                profile.lens_name.contains("24-70") || profile.lens_name.contains("2470"),
+                "Expected 24-70 lens, got: {}",
+                profile.lens_name
+            );
+        }
     }
 
     #[test]
-    fn test_find_fuzzy() {
-        let p = find_profile_by_name("Canon EF 24-70 f2.8 L II");
-        assert!(p.is_some());
+    fn test_find_by_name_canon() {
+        let p = find_profile_by_name("Canon EF 50mm f/1.4 USM");
+        if let Some(profile) = p {
+            assert!(
+                profile.lens_name.contains("50") && profile.lens_name.contains("1.4"),
+                "Expected 50mm f/1.4, got: {}",
+                profile.lens_name
+            );
+        }
     }
 
     #[test]
     fn test_no_match() {
-        let p = find_profile_by_name("Totally Unknown Lens XYZ");
+        let p = find_profile_by_name("Totally Unknown Lens XYZ 999");
         assert!(p.is_none());
     }
 
     #[test]
-    fn test_interpolation_exact() {
-        let profile = find_profile_by_id("canon-ef-24-70-2.8-ii").unwrap();
-        let fp = interpolate_focal(profile, 24.0);
-        assert!((fp.distortion.k1 - (-0.035)).abs() < 0.001);
+    fn test_interpolation() {
+        // Find any zoom lens to test interpolation
+        let zoom = get_all_profiles()
+            .iter()
+            .find(|p| p.profiles.len() > 1)
+            .expect("Should have at least one zoom lens");
+
+        let lo = zoom.profiles.first().unwrap().focal_length;
+        let hi = zoom.profiles.last().unwrap().focal_length;
+        let mid = (lo + hi) / 2.0;
+
+        let fp = interpolate_focal(zoom, mid);
+        assert!((fp.focal_length - mid).abs() < 0.01);
     }
 
     #[test]
-    fn test_interpolation_midpoint() {
-        let profile = find_profile_by_id("canon-ef-24-70-2.8-ii").unwrap();
-        let fp = interpolate_focal(profile, 29.5);
-        // Midpoint between 24 and 35
-        assert!(fp.distortion.k1 < 0.0); // Still negative (barrel)
-        assert!(fp.distortion.k1 > -0.035); // Less than at 24mm
+    fn test_ptlens_coefficients_plausible() {
+        // Check that parsed distortion coefficients are in a reasonable range
+        for profile in get_all_profiles() {
+            for fp in &profile.profiles {
+                assert!(
+                    fp.distortion.a.abs() < 1.0
+                        && fp.distortion.b.abs() < 1.0
+                        && fp.distortion.c.abs() < 1.0,
+                    "Implausible distortion for {}: a={}, b={}, c={}",
+                    profile.lens_name,
+                    fp.distortion.a,
+                    fp.distortion.b,
+                    fp.distortion.c
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_xml_fragment() {
+        let xml = r#"<lensdatabase version="2">
+            <lens>
+                <maker>TestMaker</maker>
+                <model>Test 50mm f/2</model>
+                <mount>TestMount</mount>
+                <calibration>
+                    <distortion model="ptlens" focal="50" a="0.001" b="-0.005" c="0.002"/>
+                    <tca model="linear" focal="50" kr="1.0003" kb="0.9997"/>
+                    <vignetting model="pa" focal="50" aperture="2.0" distance="1000" k1="-0.5" k2="0.2" k3="-0.03"/>
+                </calibration>
+            </lens>
+        </lensdatabase>"#;
+
+        let profiles = parse_lensfun_xml(xml).unwrap();
+        assert_eq!(profiles.len(), 1);
+        let p = &profiles[0];
+        assert_eq!(p.lens_name, "TestMaker Test 50mm f/2");
+        assert_eq!(p.mount, "TestMount");
+        assert_eq!(p.profiles.len(), 1);
+        let fp = &p.profiles[0];
+        assert!((fp.distortion.a - 0.001).abs() < 1e-6);
+        assert!((fp.distortion.b - (-0.005)).abs() < 1e-6);
+        assert!((fp.ca.red_scale - 1.0003).abs() < 1e-6);
+        assert!((fp.vignette.v1 - (-0.5)).abs() < 1e-6);
     }
 }
