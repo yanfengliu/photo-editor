@@ -2,11 +2,201 @@ use std::sync::mpsc;
 
 use rayon::prelude::*;
 
-use crate::catalog::models::EditParams;
+use crate::catalog::models::{CurvePoint, EditParams};
 use crate::gpu::context::GpuContext;
 use crate::gpu::passes::basic_adjustments::BasicAdjustmentsParams;
 
 const PARALLEL_PIXEL_THRESHOLD: usize = 512 * 512;
+
+/// Build a 256-entry LUT from curve control points using monotone cubic interpolation.
+/// Points must be sorted by x. Returns identity LUT if fewer than 2 points.
+fn build_curve_lut(points: &[CurvePoint]) -> [f32; 256] {
+    let mut lut = [0.0f32; 256];
+    let n = points.len();
+
+    if n < 2 {
+        // Identity
+        for i in 0..256 {
+            lut[i] = i as f32 / 255.0;
+        }
+        return lut;
+    }
+
+    // For exactly 2 points, use linear interpolation
+    if n == 2 {
+        for i in 0..256 {
+            let t = i as f32 / 255.0;
+            let dx = points[1].x - points[0].x;
+            if dx.abs() < 1e-6 {
+                lut[i] = points[0].y;
+            } else {
+                let frac = ((t - points[0].x) / dx).clamp(0.0, 1.0);
+                lut[i] = (points[0].y + frac * (points[1].y - points[0].y)).clamp(0.0, 1.0);
+            }
+        }
+        return lut;
+    }
+
+    // Monotone cubic (Fritsch-Carlson) spline
+    let xs: Vec<f32> = points.iter().map(|p| p.x).collect();
+    let ys: Vec<f32> = points.iter().map(|p| p.y).collect();
+
+    // Compute slopes between segments
+    let mut deltas = vec![0.0f32; n - 1];
+    let mut h = vec![0.0f32; n - 1];
+    for i in 0..n - 1 {
+        h[i] = xs[i + 1] - xs[i];
+        deltas[i] = if h[i].abs() < 1e-10 { 0.0 } else { (ys[i + 1] - ys[i]) / h[i] };
+    }
+
+    // Compute tangents with Fritsch-Carlson monotonicity
+    let mut m = vec![0.0f32; n];
+    m[0] = deltas[0];
+    m[n - 1] = deltas[n - 2];
+    for i in 1..n - 1 {
+        if deltas[i - 1] * deltas[i] <= 0.0 {
+            m[i] = 0.0;
+        } else {
+            m[i] = (deltas[i - 1] + deltas[i]) / 2.0;
+        }
+    }
+
+    // Enforce monotonicity
+    for i in 0..n - 1 {
+        if deltas[i].abs() < 1e-10 {
+            m[i] = 0.0;
+            m[i + 1] = 0.0;
+        } else {
+            let alpha = m[i] / deltas[i];
+            let beta = m[i + 1] / deltas[i];
+            let s = alpha * alpha + beta * beta;
+            if s > 9.0 {
+                let tau = 3.0 / s.sqrt();
+                m[i] = tau * alpha * deltas[i];
+                m[i + 1] = tau * beta * deltas[i];
+            }
+        }
+    }
+
+    // Evaluate spline at each LUT entry
+    for i in 0..256 {
+        let t = i as f32 / 255.0;
+
+        // Clamp to curve range
+        if t <= xs[0] {
+            lut[i] = ys[0].clamp(0.0, 1.0);
+            continue;
+        }
+        if t >= xs[n - 1] {
+            lut[i] = ys[n - 1].clamp(0.0, 1.0);
+            continue;
+        }
+
+        // Find segment
+        let mut seg = 0;
+        for j in 0..n - 1 {
+            if t >= xs[j] && t < xs[j + 1] {
+                seg = j;
+                break;
+            }
+        }
+
+        let dx = h[seg];
+        if dx.abs() < 1e-10 {
+            lut[i] = ys[seg].clamp(0.0, 1.0);
+            continue;
+        }
+
+        let frac = (t - xs[seg]) / dx;
+        let frac2 = frac * frac;
+        let frac3 = frac2 * frac;
+
+        // Hermite basis
+        let h00 = 2.0 * frac3 - 3.0 * frac2 + 1.0;
+        let h10 = frac3 - 2.0 * frac2 + frac;
+        let h01 = -2.0 * frac3 + 3.0 * frac2;
+        let h11 = frac3 - frac2;
+
+        let val = h00 * ys[seg] + h10 * dx * m[seg] + h01 * ys[seg + 1] + h11 * dx * m[seg + 1];
+        lut[i] = val.clamp(0.0, 1.0);
+    }
+
+    lut
+}
+
+/// Check if a curve is the identity (straight line from (0,0) to (1,1))
+fn is_identity_curve(points: &[CurvePoint]) -> bool {
+    if points.len() != 2 {
+        return false;
+    }
+    (points[0].x - 0.0).abs() < 0.001
+        && (points[0].y - 0.0).abs() < 0.001
+        && (points[1].x - 1.0).abs() < 0.001
+        && (points[1].y - 1.0).abs() < 0.001
+}
+
+/// Pre-built LUTs for all 4 curve channels
+struct CurveLuts {
+    rgb: [f32; 256],
+    r: [f32; 256],
+    g: [f32; 256],
+    b: [f32; 256],
+    has_rgb: bool,
+    has_r: bool,
+    has_g: bool,
+    has_b: bool,
+}
+
+impl CurveLuts {
+    fn from_params(params: &EditParams) -> Self {
+        let has_rgb = !is_identity_curve(&params.curve_rgb);
+        let has_r = !is_identity_curve(&params.curve_r);
+        let has_g = !is_identity_curve(&params.curve_g);
+        let has_b = !is_identity_curve(&params.curve_b);
+        Self {
+            rgb: if has_rgb { build_curve_lut(&params.curve_rgb) } else { [0.0; 256] },
+            r: if has_r { build_curve_lut(&params.curve_r) } else { [0.0; 256] },
+            g: if has_g { build_curve_lut(&params.curve_g) } else { [0.0; 256] },
+            b: if has_b { build_curve_lut(&params.curve_b) } else { [0.0; 256] },
+            has_rgb,
+            has_r,
+            has_g,
+            has_b,
+        }
+    }
+
+    fn is_identity(&self) -> bool {
+        !self.has_rgb && !self.has_r && !self.has_g && !self.has_b
+    }
+
+    fn apply(&self, pixel: &mut [u8]) {
+        let mut r = pixel[0] as f32 / 255.0;
+        let mut g = pixel[1] as f32 / 255.0;
+        let mut b = pixel[2] as f32 / 255.0;
+
+        // Per-channel curves first, then master RGB
+        if self.has_r { r = sample_lut(&self.r, r); }
+        if self.has_g { g = sample_lut(&self.g, g); }
+        if self.has_b { b = sample_lut(&self.b, b); }
+        if self.has_rgb {
+            r = sample_lut(&self.rgb, r);
+            g = sample_lut(&self.rgb, g);
+            b = sample_lut(&self.rgb, b);
+        }
+
+        pixel[0] = (r.clamp(0.0, 1.0) * 255.0) as u8;
+        pixel[1] = (g.clamp(0.0, 1.0) * 255.0) as u8;
+        pixel[2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
+    }
+}
+
+fn sample_lut(lut: &[f32; 256], val: f32) -> f32 {
+    let idx_f = val.clamp(0.0, 1.0) * 255.0;
+    let lo = idx_f.floor() as usize;
+    let hi = (lo + 1).min(255);
+    let frac = idx_f - idx_f.floor();
+    lut[lo] * (1.0 - frac) + lut[hi] * frac
+}
 
 #[derive(Clone, Copy)]
 struct CpuEditProfile {
@@ -172,7 +362,9 @@ pub fn apply_edits_cpu(rgba_data: &[u8], params: &EditParams) -> Vec<u8> {
     }
 
     let profile = CpuEditProfile::from_params(params);
-    if profile.is_neutral() {
+    let curves = CurveLuts::from_params(params);
+
+    if profile.is_neutral() && curves.is_identity() {
         return rgba_data.to_vec();
     }
 
@@ -182,11 +374,17 @@ pub fn apply_edits_cpu(rgba_data: &[u8], params: &EditParams) -> Vec<u8> {
     if pixel_count >= PARALLEL_PIXEL_THRESHOLD {
         result
             .par_chunks_exact_mut(4)
-            .for_each(|pixel| apply_edits_to_pixel(pixel, profile));
+            .for_each(|pixel| {
+                if !profile.is_neutral() { apply_edits_to_pixel(pixel, profile); }
+                if !curves.is_identity() { curves.apply(pixel); }
+            });
     } else {
         result
             .chunks_exact_mut(4)
-            .for_each(|pixel| apply_edits_to_pixel(pixel, profile));
+            .for_each(|pixel| {
+                if !profile.is_neutral() { apply_edits_to_pixel(pixel, profile); }
+                if !curves.is_identity() { curves.apply(pixel); }
+            });
     }
 
     result
@@ -487,6 +685,129 @@ mod tests {
         let mut params = EditParams::default();
         params.clarity = 10.0;
         assert!(!supports_gpu_basic_pipeline(&params));
+    }
+
+    // --- Tone curve tests ---
+
+    #[test]
+    fn test_identity_curve_no_change() {
+        let input = make_gray_image(128, 1);
+        let params = EditParams::default(); // default curves are identity
+        let output = apply_edits_cpu(&input, &params);
+        assert_eq!(output[0], 128);
+    }
+
+    #[test]
+    fn test_curve_lut_identity() {
+        let identity = vec![
+            CurvePoint { x: 0.0, y: 0.0 },
+            CurvePoint { x: 1.0, y: 1.0 },
+        ];
+        let lut = build_curve_lut(&identity);
+        for i in 0..256 {
+            let expected = i as f32 / 255.0;
+            assert!((lut[i] - expected).abs() < 0.01, "LUT[{}]: expected {}, got {}", i, expected, lut[i]);
+        }
+    }
+
+    #[test]
+    fn test_curve_lut_brighten() {
+        // Curve that lifts midtones: (0,0) -> (0.5, 0.75) -> (1,1)
+        let points = vec![
+            CurvePoint { x: 0.0, y: 0.0 },
+            CurvePoint { x: 0.5, y: 0.75 },
+            CurvePoint { x: 1.0, y: 1.0 },
+        ];
+        let lut = build_curve_lut(&points);
+        // At x=0.5, output should be ~0.75
+        assert!(lut[128] > 0.6, "Midpoint should be lifted: got {}", lut[128]);
+        // Endpoints should be preserved
+        assert!(lut[0] < 0.01, "Black point should be near 0: got {}", lut[0]);
+        assert!(lut[255] > 0.99, "White point should be near 1: got {}", lut[255]);
+    }
+
+    #[test]
+    fn test_curve_lut_darken() {
+        // Curve that pulls midtones down: (0,0) -> (0.5, 0.25) -> (1,1)
+        let points = vec![
+            CurvePoint { x: 0.0, y: 0.0 },
+            CurvePoint { x: 0.5, y: 0.25 },
+            CurvePoint { x: 1.0, y: 1.0 },
+        ];
+        let lut = build_curve_lut(&points);
+        assert!(lut[128] < 0.4, "Midpoint should be darkened: got {}", lut[128]);
+    }
+
+    #[test]
+    fn test_rgb_curve_brightens_image() {
+        let input = make_gray_image(128, 1); // mid-gray
+        let mut params = EditParams::default();
+        params.curve_rgb = vec![
+            CurvePoint { x: 0.0, y: 0.0 },
+            CurvePoint { x: 0.5, y: 0.75 },
+            CurvePoint { x: 1.0, y: 1.0 },
+        ];
+        let output = apply_edits_cpu(&input, &params);
+        assert!(output[0] > 128, "Brightening curve should lift mid-gray: got {}", output[0]);
+    }
+
+    #[test]
+    fn test_per_channel_curve_shifts_color() {
+        let input = make_gray_image(128, 1);
+        let mut params = EditParams::default();
+        // Boost red channel only
+        params.curve_r = vec![
+            CurvePoint { x: 0.0, y: 0.0 },
+            CurvePoint { x: 0.5, y: 0.8 },
+            CurvePoint { x: 1.0, y: 1.0 },
+        ];
+        let output = apply_edits_cpu(&input, &params);
+        assert!(output[0] > output[1], "Red channel boost: R={} should be > G={}", output[0], output[1]);
+        assert!(output[0] > output[2], "Red channel boost: R={} should be > B={}", output[0], output[2]);
+    }
+
+    #[test]
+    fn test_curve_with_exposure_combined() {
+        let input = make_gray_image(100, 1);
+        let mut params = EditParams::default();
+        params.exposure = 1.0;
+        params.curve_rgb = vec![
+            CurvePoint { x: 0.0, y: 0.0 },
+            CurvePoint { x: 0.5, y: 0.75 },
+            CurvePoint { x: 1.0, y: 1.0 },
+        ];
+        let output = apply_edits_cpu(&input, &params);
+        // Both exposure and curve should brighten
+        assert!(output[0] > input[0], "Combined exposure+curve should brighten: {} vs {}", output[0], input[0]);
+    }
+
+    #[test]
+    fn test_curve_alpha_preserved() {
+        let input = vec![128, 128, 128, 200];
+        let mut params = EditParams::default();
+        params.curve_rgb = vec![
+            CurvePoint { x: 0.0, y: 0.0 },
+            CurvePoint { x: 0.5, y: 0.8 },
+            CurvePoint { x: 1.0, y: 1.0 },
+        ];
+        let output = apply_edits_cpu(&input, &params);
+        assert_eq!(output[3], 200, "Alpha should be preserved through curve: got {}", output[3]);
+    }
+
+    #[test]
+    fn test_is_identity_curve() {
+        let identity = vec![
+            CurvePoint { x: 0.0, y: 0.0 },
+            CurvePoint { x: 1.0, y: 1.0 },
+        ];
+        assert!(is_identity_curve(&identity));
+
+        let non_identity = vec![
+            CurvePoint { x: 0.0, y: 0.0 },
+            CurvePoint { x: 0.5, y: 0.7 },
+            CurvePoint { x: 1.0, y: 1.0 },
+        ];
+        assert!(!is_identity_curve(&non_identity));
     }
 
     #[test]
