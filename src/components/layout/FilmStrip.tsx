@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
 import { useCatalogStore } from "../../stores/catalogStore";
 import { useUiStore } from "../../stores/uiStore";
-import { loadThumbnail } from "../../api/image";
+import { useThumbnail } from "../../hooks/useThumbnail";
 import type { ImageRecord } from "../../types/catalog";
 import styles from "./FilmStrip.module.css";
 
@@ -16,35 +15,7 @@ function FilmStripThumb({
   onClick: () => void;
   onDoubleClick: () => void;
 }) {
-  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    let objectUrl: string | null = null;
-
-    setThumbnailUrl(null);
-
-    loadThumbnail(image.id)
-      .then((bytes) => {
-        if (!active || bytes.length === 0) return;
-        const buffer = new ArrayBuffer(bytes.byteLength);
-        new Uint8Array(buffer).set(bytes);
-        objectUrl = URL.createObjectURL(
-          new Blob([buffer], { type: "image/jpeg" })
-        );
-        setThumbnailUrl(objectUrl);
-      })
-      .catch(() => {
-        setThumbnailUrl(null);
-      });
-
-    return () => {
-      active = false;
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-      }
-    };
-  }, [image.id]);
+  const thumbnailUrl = useThumbnail(image.id);
 
   return (
     <div

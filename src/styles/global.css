@@ -48,6 +48,19 @@ button {
   color: inherit;
 }
 
+select {
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+}
+
+select option {
+  background-color: var(--bg-panel);
+  color: var(--text-primary);
+}
+
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
