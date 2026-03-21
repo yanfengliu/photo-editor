@@ -16,6 +16,7 @@ export function DevelopView() {
   const { selectedImageId, rightPanelOpen } = useUiStore();
   const { setCurrentImage, currentImageId } = useDevelopStore();
   useEffect(() => { if (selectedImageId && selectedImageId !== currentImageId) setCurrentImage(selectedImageId); }, [selectedImageId]);
+  useEffect(() => () => { useDevelopStore.setState({ undoStack: [], redoStack: [] }); }, []);
 
   return (
     <div className={styles.develop}>
