@@ -3,8 +3,8 @@
 struct Params {
     amount: f32,
     radius: f32,
+    detail: f32,
     _pad0: f32,
-    _pad1: f32,
 }
 
 @group(0) @binding(0) var input_tex: texture_storage_2d<rgba32float, read>;
@@ -43,9 +43,16 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
     blur /= weight_sum;
 
-    // Unsharp mask: original + amount * (original - blur)
+    // Unsharp mask with threshold (detail parameter)
     let strength = params.amount / 100.0;
-    let sharp = center.rgb + (center.rgb - blur) * strength;
+    let threshold = (1.0 - params.detail / 100.0) * 0.1;
+    let diff = center.rgb - blur;
+    let mask = vec3<f32>(
+        select(0.0, 1.0, abs(diff.r) > threshold),
+        select(0.0, 1.0, abs(diff.g) > threshold),
+        select(0.0, 1.0, abs(diff.b) > threshold)
+    );
+    let sharp = center.rgb + diff * strength * mask;
 
     textureStore(output_tex, coord, vec4<f32>(clamp(sharp, vec3<f32>(0.0), vec3<f32>(1.0)), center.a));
 }

@@ -9,12 +9,7 @@ pub(crate) struct CpuEditProfile {
     pub(crate) apply_exposure: bool,
     exposure_scale: f32,
     pub(crate) apply_contrast: bool,
-    contrast_exponent: f32,
-    pub(crate) apply_tone_regions: bool,
-    highlights_factor: f32,
-    shadows_factor: f32,
-    whites_factor: f32,
-    blacks_factor: f32,
+    contrast_beta: f32,
     pub(crate) apply_saturation: bool,
     saturation_scale: f32,
     pub(crate) apply_vibrance: bool,
@@ -27,10 +22,16 @@ pub(crate) struct CpuEditProfile {
 
 /// Compute white-balance channel multipliers from color temperature.
 ///
-/// Uses Hernandez-Andres et al. (1999) rational polynomial to map a correlated
-/// color temperature (CCT) to CIE 1931 xy chromaticity on the Planckian locus,
-/// then converts both source and D65 illuminants to linear sRGB and returns
-/// per-channel correction ratios (normalized so green = 1).
+/// Compute white-balance channel multipliers from color temperature.
+///
+/// Uses Kim et al. (2002) / Kang et al. (2002) cubic polynomial to map CCT
+/// to CIE 1931 xy chromaticity on the Planckian locus (1667–25000 K range),
+/// then converts both source and D65 illuminants to linear sRGB via the
+/// IEC 61966-2-1 XYZ→sRGB matrix and returns per-channel correction ratios
+/// (normalized so green = 1).
+///
+/// Reference: Kang B. et al., "Design of Advanced Color Temperature Control
+/// System for HDTV Applications", J. Korean Phys. Soc. 41(6), 865–871, 2002.
 ///
 /// Returns (red_scale, blue_scale) relative to D65 neutral.
 pub(crate) fn planckian_wb_scales(temperature_k: f32) -> (f32, f32) {
@@ -51,7 +52,7 @@ pub(crate) fn planckian_wb_scales(temperature_k: f32) -> (f32, f32) {
     (r_ratio / g_ratio, b_ratio / g_ratio)
 }
 
-/// CIE 1931 xy chromaticity on the Planckian locus via Hernandez-Andres et al. (1999).
+/// CIE 1931 xy chromaticity on the Planckian locus via Kim/Kang et al. (2002).
 fn planckian_cie_xy(t: f32) -> (f32, f32) {
     let x = if t <= 4000.0 {
         -0.2661239e9 / (t * t * t) - 0.2343589e6 / (t * t) + 0.8776956e3 / t + 0.179910
@@ -84,18 +85,9 @@ impl CpuEditProfile {
         let (temp_red_scale, temp_blue_scale) = planckian_wb_scales(params.temperature);
         let tint_green_scale = 1.0 + params.tint / 150.0 * 0.05;
         let exposure_scale = (2.0_f32).powf(params.exposure);
-        let contrast_exponent = (1.0 + params.contrast / 100.0).max(0.01);
-        let highlights_factor = params.highlights / 200.0;
-        let shadows_factor = params.shadows / 200.0;
-        let whites_factor = params.whites / 200.0;
-        let blacks_factor = params.blacks / 200.0;
+        let contrast_beta = params.contrast / 100.0 * 10.0;
         let saturation_scale = 1.0 + params.saturation / 100.0;
         let vibrance_scale = params.vibrance / 100.0;
-        let apply_tone_regions = params.highlights.abs() > 0.001
-            || params.shadows.abs() > 0.001
-            || params.whites.abs() > 0.001
-            || params.blacks.abs() > 0.001;
-
         let apply_hsl = params.hsl_hue.iter().any(|v| v.abs() > 0.001)
             || params.hsl_saturation.iter().any(|v| v.abs() > 0.001)
             || params.hsl_luminance.iter().any(|v| v.abs() > 0.001);
@@ -117,12 +109,7 @@ impl CpuEditProfile {
             apply_exposure: params.exposure.abs() > 0.001,
             exposure_scale,
             apply_contrast: params.contrast.abs() > 0.001,
-            contrast_exponent,
-            apply_tone_regions,
-            highlights_factor,
-            shadows_factor,
-            whites_factor,
-            blacks_factor,
+            contrast_beta,
             apply_saturation: params.saturation.abs() > 0.001,
             saturation_scale,
             apply_vibrance: params.vibrance.abs() > 0.001,
@@ -138,24 +125,36 @@ impl CpuEditProfile {
         !self.apply_white_balance
             && !self.apply_exposure
             && !self.apply_contrast
-            && !self.apply_tone_regions
             && !self.apply_saturation
             && !self.apply_vibrance
             && !self.apply_hsl
     }
 }
 
-/// Symmetric S-curve: maps [0,1]→[0,1] through (0,0), (0.5,0.5), (1,1).
-/// Exponent > 1 steepens midtones (more contrast), < 1 flattens (less contrast).
+/// Sigmoidal contrast: standard logistic sigmoid S-curve.
+///
+/// Uses the normalized sigmoid transfer function from ImageMagick:
+///   S(x) = (sig(β·(x-α)) - sig(-β·α)) / (sig(β·(1-α)) - sig(-β·α))
+/// where sig(t) = 1/(1+exp(-t)), α = 0.5 (midpoint).
+///
+/// β > 0 increases contrast, β < 0 decreases, β = 0 is identity.
+///
+/// Reference: ImageMagick sigmoidal-contrast, documented at
+/// https://legacy.imagemagick.org/Usage/color_mods/#sigmoidal
 #[inline]
-fn s_curve_contrast(c: f32, exponent: f32) -> f32 {
-    let d = (c - 0.5).abs();
-    let t = (1.0 - 2.0 * d).max(0.0);
-    let curved = 1.0 - t.powf(exponent);
-    0.5 + (c - 0.5).signum() * 0.5 * curved
+fn sigmoid_contrast(x: f32, beta: f32) -> f32 {
+    if beta.abs() < 0.01 {
+        return x;
+    }
+    let alpha = 0.5;
+    let sig = |t: f32| -> f32 { 1.0 / (1.0 + (-t).exp()) };
+    let s0 = sig(-beta * alpha);
+    let s1 = sig(beta * (1.0 - alpha));
+    let sx = sig(beta * (x - alpha));
+    (sx - s0) / (s1 - s0)
 }
 
-/// Apply per-pixel basic adjustments (WB, exposure, contrast, tone regions, sat, vibrance, dehaze)
+/// Apply per-pixel basic adjustments (WB, exposure, contrast, sat, vibrance)
 pub(crate) fn apply_edits_to_pixel(pixel: &mut [u8], profile: CpuEditProfile) {
     let mut r = pixel[0] as f32 / 255.0;
     let mut g = pixel[1] as f32 / 255.0;
@@ -173,35 +172,11 @@ pub(crate) fn apply_edits_to_pixel(pixel: &mut [u8], profile: CpuEditProfile) {
         b *= profile.exposure_scale;
     }
 
-    // Contrast — symmetric S-curve (power curve pivot at 0.5)
+    // Contrast — sigmoidal contrast (logistic sigmoid, midpoint α=0.5)
     if profile.apply_contrast {
-        r = s_curve_contrast(r, profile.contrast_exponent);
-        g = s_curve_contrast(g, profile.contrast_exponent);
-        b = s_curve_contrast(b, profile.contrast_exponent);
-    }
-
-    // Tone regions: smooth power-curve masks instead of hard thresholds
-    if profile.apply_tone_regions {
-        let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-
-        // Smooth luminance masks
-        let hl_mask = lum * lum;                         // highlights
-        let sh_mask = (1.0 - lum) * (1.0 - lum);        // shadows
-        let w_mask = hl_mask * hl_mask;                  // whites (tighter)
-        let b_mask = sh_mask * sh_mask;                  // blacks (tighter)
-
-        let lum_shift = hl_mask * profile.highlights_factor
-                      + sh_mask * profile.shadows_factor
-                      + w_mask * profile.whites_factor
-                      + b_mask * profile.blacks_factor;
-
-        if lum_shift.abs() > 0.0001 {
-            let target_lum = (lum + lum_shift).clamp(0.0, 1.5);
-            let ratio = if lum < 0.001 { 1.0 + lum_shift } else { target_lum / lum };
-            r *= ratio;
-            g *= ratio;
-            b *= ratio;
-        }
+        r = sigmoid_contrast(r, profile.contrast_beta);
+        g = sigmoid_contrast(g, profile.contrast_beta);
+        b = sigmoid_contrast(b, profile.contrast_beta);
     }
 
     // Saturation
@@ -212,13 +187,29 @@ pub(crate) fn apply_edits_to_pixel(pixel: &mut [u8], profile: CpuEditProfile) {
         b = gray + (b - gray) * profile.saturation_scale;
     }
 
-    // Vibrance — recalculate gray after saturation
+    // Vibrance — selective saturation with skin-tone protection
+    // Boosts less-saturated colors more; protects warm hues (skin tones)
+    // from over-saturation, matching Adobe's vibrance behavior.
     if profile.apply_vibrance {
         let gray = 0.2126 * r + 0.7152 * g + 0.0722 * b;
         let max_c = r.max(g).max(b);
         let min_c = r.min(g).min(b);
         let cur_sat = if max_c > 0.0 { (max_c - min_c) / max_c } else { 0.0 };
-        let vibrance_factor = 1.0 + profile.vibrance_scale * (1.0 - cur_sat);
+
+        // Skin-tone detection: warm hues (reds, oranges, yellows) get reduced boost
+        // Approximate hue from RGB: skin tones are roughly where R > G > B
+        let skin_weight = if max_c > 0.01 && r > g && g > b {
+            // More skin-like when R is dominant and G is between R and B
+            let rg_ratio = (r - g) / max_c;
+            let gb_ratio = (g - b) / max_c;
+            // Narrow skin range: rg_ratio small, gb_ratio moderate
+            (1.0 - rg_ratio * 2.0).max(0.0) * (gb_ratio * 3.0).min(1.0)
+        } else {
+            0.0
+        };
+        let protection = 1.0 - skin_weight * 0.7; // reduce vibrance boost by up to 70% for skin
+
+        let vibrance_factor = 1.0 + profile.vibrance_scale * (1.0 - cur_sat) * protection;
         r = gray + (r - gray) * vibrance_factor;
         g = gray + (g - gray) * vibrance_factor;
         b = gray + (b - gray) * vibrance_factor;
@@ -406,22 +397,25 @@ mod tests {
     }
 
     #[test]
-    fn s_curve_preserves_endpoints_and_midpoint() {
-        // Identity at exponent=1
+    fn sigmoid_contrast_preserves_endpoints_and_midpoint() {
+        // Identity when beta ≈ 0
         for v in [0.0, 0.25, 0.5, 0.75, 1.0] {
-            let result = s_curve_contrast(v, 1.0);
-            assert!((result - v).abs() < 0.001, "Identity: s_curve({v}, 1) = {result}");
+            let result = sigmoid_contrast(v, 0.0);
+            assert!((result - v).abs() < 0.001, "Identity: sigmoid_contrast({v}, 0) = {result}");
         }
-        // Fixed points at 0, 0.5, 1 for any exponent
-        for exp in [0.5, 1.5, 2.0] {
-            assert!((s_curve_contrast(0.0, exp) - 0.0).abs() < 0.001);
-            assert!((s_curve_contrast(0.5, exp) - 0.5).abs() < 0.001);
-            assert!((s_curve_contrast(1.0, exp) - 1.0).abs() < 0.001);
+        // Fixed points at 0, 0.5, 1 for any beta
+        for beta in [-5.0, 2.0, 5.0, 10.0] {
+            assert!((sigmoid_contrast(0.0, beta) - 0.0).abs() < 0.01,
+                "sigmoid_contrast(0, {beta}) = {}", sigmoid_contrast(0.0, beta));
+            assert!((sigmoid_contrast(0.5, beta) - 0.5).abs() < 0.001,
+                "sigmoid_contrast(0.5, {beta}) = {}", sigmoid_contrast(0.5, beta));
+            assert!((sigmoid_contrast(1.0, beta) - 1.0).abs() < 0.01,
+                "sigmoid_contrast(1, {beta}) = {}", sigmoid_contrast(1.0, beta));
         }
-        // High contrast darkens shadows, brightens highlights
-        let dark = s_curve_contrast(0.2, 2.0);
-        let bright = s_curve_contrast(0.8, 2.0);
-        assert!(dark < 0.2, "S-curve should darken shadows: {dark}");
-        assert!(bright > 0.8, "S-curve should brighten highlights: {bright}");
+        // Positive contrast darkens shadows, brightens highlights
+        let dark = sigmoid_contrast(0.2, 5.0);
+        let bright = sigmoid_contrast(0.8, 5.0);
+        assert!(dark < 0.2, "Sigmoid should darken shadows: {dark}");
+        assert!(bright > 0.8, "Sigmoid should brighten highlights: {bright}");
     }
 }

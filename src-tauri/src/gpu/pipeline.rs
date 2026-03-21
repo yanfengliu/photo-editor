@@ -9,7 +9,7 @@ use crate::gpu::curves::CurveLuts;
 use crate::gpu::passes::basic_adjustments::BasicAdjustmentsParams;
 use crate::gpu::spatial::{
     apply_clarity_cpu, apply_dehaze_cpu, apply_denoise_cpu, apply_grain_cpu,
-    apply_sharpening_cpu, apply_vignette_cpu,
+    apply_sharpening_cpu, apply_tone_regions_cpu, apply_vignette_cpu,
 };
 use crate::imaging::lens_profiles;
 
@@ -295,11 +295,14 @@ pub fn apply_edits_cpu_with_lens(rgba_data: &[u8], width: u32, height: u32, para
     }
 
     // --- Spatial passes (need full buffer + dimensions) ---
+    // Edge-aware tone region adjustment (highlights/shadows/whites/blacks)
+    apply_tone_regions_cpu(&mut result, width, height,
+        params.highlights, params.shadows, params.whites, params.blacks);
     if params.dehaze.abs() > 0.01 {
         apply_dehaze_cpu(&mut result, width, height, params.dehaze);
     }
     if params.sharpening_amount > 0.01 {
-        apply_sharpening_cpu(&mut result, width, height, params.sharpening_amount, params.sharpening_radius);
+        apply_sharpening_cpu(&mut result, width, height, params.sharpening_amount, params.sharpening_radius, params.sharpening_detail);
     }
     if params.clarity.abs() > 0.01 {
         apply_clarity_cpu(&mut result, width, height, params.clarity);
@@ -324,7 +327,11 @@ pub fn apply_edits_cpu_with_lens(rgba_data: &[u8], width: u32, height: u32, para
 fn needs_cpu_post_processing(params: &EditParams) -> bool {
     let defaults = EditParams::default();
 
-    params.dehaze.abs() > 0.01
+    params.highlights.abs() > 0.01
+        || params.shadows.abs() > 0.01
+        || params.whites.abs() > 0.01
+        || params.blacks.abs() > 0.01
+        || params.dehaze.abs() > 0.01
         || params.clarity.abs() > 0.001
         || params.sharpening_amount > 0.001
         || params.denoise_luminance > 0.001
@@ -363,11 +370,14 @@ fn apply_cpu_post_processing(mut data: Vec<u8>, width: u32, height: u32, params:
     }
 
     // Spatial passes
+    // Edge-aware tone region adjustment (highlights/shadows/whites/blacks)
+    apply_tone_regions_cpu(&mut data, width, height,
+        params.highlights, params.shadows, params.whites, params.blacks);
     if params.dehaze.abs() > 0.01 {
         apply_dehaze_cpu(&mut data, width, height, params.dehaze);
     }
     if params.sharpening_amount > 0.01 {
-        apply_sharpening_cpu(&mut data, width, height, params.sharpening_amount, params.sharpening_radius);
+        apply_sharpening_cpu(&mut data, width, height, params.sharpening_amount, params.sharpening_radius, params.sharpening_detail);
     }
     if params.clarity.abs() > 0.01 {
         apply_clarity_cpu(&mut data, width, height, params.clarity);
@@ -451,11 +461,14 @@ pub fn apply_edits_with_backend_lens(
         }
     }
 
+    // Edge-aware tone region adjustment (highlights/shadows/whites/blacks)
+    apply_tone_regions_cpu(&mut result, width, height,
+        params.highlights, params.shadows, params.whites, params.blacks);
     if params.dehaze.abs() > 0.01 {
         apply_dehaze_cpu(&mut result, width, height, params.dehaze);
     }
     if params.sharpening_amount > 0.01 {
-        apply_sharpening_cpu(&mut result, width, height, params.sharpening_amount, params.sharpening_radius);
+        apply_sharpening_cpu(&mut result, width, height, params.sharpening_amount, params.sharpening_radius, params.sharpening_detail);
     }
     if params.clarity.abs() > 0.01 {
         apply_clarity_cpu(&mut result, width, height, params.clarity);

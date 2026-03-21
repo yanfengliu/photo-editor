@@ -18,6 +18,7 @@ export interface EditParams {
   dehaze: number;
   sharpening_amount: number;
   sharpening_radius: number;
+  sharpening_detail: number;
   denoise_luminance: number;
   denoise_color: number;
   denoise_ai: boolean;
@@ -62,6 +63,7 @@ export const DEFAULT_EDIT_PARAMS: EditParams = {
   dehaze: 0,
   sharpening_amount: 0,
   sharpening_radius: 1.0,
+  sharpening_detail: 25,
   denoise_luminance: 0,
   denoise_color: 0,
   denoise_ai: false,

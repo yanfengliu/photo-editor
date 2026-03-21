@@ -79,6 +79,8 @@ pub struct EditParams {
     pub dehaze: f32,
     pub sharpening_amount: f32,
     pub sharpening_radius: f32,
+    #[serde(default = "default_sharpening_detail")]
+    pub sharpening_detail: f32,
     pub denoise_luminance: f32,
     pub denoise_color: f32,
     pub denoise_ai: bool,
@@ -123,6 +125,7 @@ pub struct EditParams {
 fn default_one() -> f32 { 1.0 }
 fn default_true() -> bool { true }
 fn default_lens_amount() -> f32 { 100.0 }
+fn default_sharpening_detail() -> f32 { 25.0 }
 
 impl Default for EditParams {
     fn default() -> Self {
@@ -141,6 +144,7 @@ impl Default for EditParams {
             dehaze: 0.0,
             sharpening_amount: 0.0,
             sharpening_radius: 1.0,
+            sharpening_detail: 25.0,
             denoise_luminance: 0.0,
             denoise_color: 0.0,
             denoise_ai: false,
