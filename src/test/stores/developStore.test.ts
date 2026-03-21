@@ -203,4 +203,72 @@ describe("developStore", () => {
     useDevelopStore.getState().stopAdjusting();
     expect(useDevelopStore.getState().isAdjusting).toBe(false);
   });
+
+  it("should coalesce slider drag into a single undo entry", () => {
+    // Simulate a full slider drag: pointerDown → multiple updates → pointerUp
+    useDevelopStore.getState().startAdjusting();
+    useDevelopStore.getState().updateParam("exposure", 0.5);
+    useDevelopStore.getState().updateParam("exposure", 1.0);
+    useDevelopStore.getState().updateParam("exposure", 1.5);
+    useDevelopStore.getState().updateParam("exposure", 2.0);
+    useDevelopStore.getState().stopAdjusting();
+
+    // Should produce exactly one undo entry (the pre-drag state)
+    expect(useDevelopStore.getState().undoStack).toHaveLength(1);
+    expect(useDevelopStore.getState().undoStack[0].exposure).toBe(0);
+    expect(useDevelopStore.getState().editParams.exposure).toBe(2.0);
+  });
+
+  it("should not create undo entry when drag produces no change", () => {
+    useDevelopStore.getState().startAdjusting();
+    // No updateParam calls
+    useDevelopStore.getState().stopAdjusting();
+
+    expect(useDevelopStore.getState().undoStack).toHaveLength(0);
+  });
+
+  it("should preserve redo stack during slider drag", () => {
+    // Create an undo history and then undo to populate redo stack
+    useDevelopStore.getState().updateParam("exposure", 1.0);
+    useDevelopStore.getState().updateParam("contrast", 50);
+    useDevelopStore.getState().undo();
+    expect(useDevelopStore.getState().redoStack).toHaveLength(1);
+
+    // During a drag, intermediate updates should NOT clear redo stack
+    useDevelopStore.getState().startAdjusting();
+    useDevelopStore.getState().updateParam("shadows", 10);
+    useDevelopStore.getState().updateParam("shadows", 20);
+    // Redo stack should remain intact during the drag
+    expect(useDevelopStore.getState().redoStack).toHaveLength(1);
+
+    // stopAdjusting commits the drag and clears redo
+    useDevelopStore.getState().stopAdjusting();
+    expect(useDevelopStore.getState().redoStack).toHaveLength(0);
+  });
+
+  it("should undo a coalesced drag as one step", () => {
+    useDevelopStore.getState().startAdjusting();
+    useDevelopStore.getState().updateParam("exposure", 0.5);
+    useDevelopStore.getState().updateParam("exposure", 1.0);
+    useDevelopStore.getState().updateParam("exposure", 2.0);
+    useDevelopStore.getState().stopAdjusting();
+
+    // Undo the entire drag in one step
+    useDevelopStore.getState().undo();
+    expect(useDevelopStore.getState().editParams.exposure).toBe(0);
+    expect(useDevelopStore.getState().undoStack).toHaveLength(0);
+    expect(useDevelopStore.getState().redoStack).toHaveLength(1);
+  });
+
+  it("should redo a coalesced drag as one step", () => {
+    useDevelopStore.getState().startAdjusting();
+    useDevelopStore.getState().updateParam("exposure", 2.0);
+    useDevelopStore.getState().stopAdjusting();
+
+    useDevelopStore.getState().undo();
+    expect(useDevelopStore.getState().editParams.exposure).toBe(0);
+
+    useDevelopStore.getState().redo();
+    expect(useDevelopStore.getState().editParams.exposure).toBe(2.0);
+  });
 });

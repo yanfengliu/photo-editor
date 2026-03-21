@@ -137,4 +137,57 @@ describe("Undo/Redo integration with slider edits and keyboard shortcuts", () =>
     fireEvent.pointerUp(sliders[0]);
     expect(useDevelopStore.getState().isAdjusting).toBe(false);
   });
+
+  it("Ctrl+Shift+Z redo works with uppercase key (real browser behavior)", () => {
+    render(<UndoRedoHarness />);
+    const sliders = screen.getAllByRole("slider");
+
+    fireEvent.change(sliders[0], { target: { value: "2.0" } });
+    expect(useDevelopStore.getState().editParams.exposure).toBe(2.0);
+
+    // Undo
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    expect(useDevelopStore.getState().editParams.exposure).toBe(0);
+
+    // Redo with uppercase Z (as browsers actually send with Shift held)
+    fireEvent.keyDown(window, { key: "Z", ctrlKey: true, shiftKey: true });
+    expect(useDevelopStore.getState().editParams.exposure).toBe(2.0);
+  });
+
+  it("Ctrl+Y redo works", () => {
+    render(<UndoRedoHarness />);
+    const sliders = screen.getAllByRole("slider");
+
+    fireEvent.change(sliders[0], { target: { value: "3.0" } });
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    expect(useDevelopStore.getState().editParams.exposure).toBe(0);
+
+    fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+    expect(useDevelopStore.getState().editParams.exposure).toBe(3.0);
+  });
+
+  it("slider drag coalesces into single undo step", () => {
+    render(<UndoRedoHarness />);
+    const sliders = screen.getAllByRole("slider");
+
+    // Simulate full drag: pointerDown → multiple changes → pointerUp
+    fireEvent.pointerDown(sliders[0]);
+    fireEvent.change(sliders[0], { target: { value: "0.5" } });
+    fireEvent.change(sliders[0], { target: { value: "1.0" } });
+    fireEvent.change(sliders[0], { target: { value: "1.5" } });
+    fireEvent.change(sliders[0], { target: { value: "2.0" } });
+    fireEvent.pointerUp(sliders[0]);
+
+    expect(useDevelopStore.getState().editParams.exposure).toBe(2.0);
+    // Entire drag should be one undo entry
+    expect(useDevelopStore.getState().undoStack).toHaveLength(1);
+
+    // Single Ctrl+Z undoes the entire drag
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    expect(useDevelopStore.getState().editParams.exposure).toBe(0);
+
+    // Single Ctrl+Shift+Z redoes it
+    fireEvent.keyDown(window, { key: "Z", ctrlKey: true, shiftKey: true });
+    expect(useDevelopStore.getState().editParams.exposure).toBe(2.0);
+  });
 });
