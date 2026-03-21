@@ -6,6 +6,7 @@ import { ToneCurve } from "./panels/ToneCurve";
 import { HSLPanel } from "./panels/HSLPanel";
 import { DetailPanel } from "./panels/DetailPanel";
 import { EffectsPanel } from "./panels/EffectsPanel";
+import { LensCorrectionPanel } from "./panels/LensCorrectionPanel";
 import { useUiStore } from "../../stores/uiStore";
 import { useDevelopStore } from "../../stores/developStore";
 import styles from "./DevelopView.module.css";
@@ -18,7 +19,7 @@ export function DevelopView() {
   return (
     <div className={styles.develop}>
       <div className={styles.center}>{selectedImageId ? <ImageCanvas /> : <div className={styles.empty}>Select an image to edit</div>}</div>
-      {rightPanelOpen && <div className={styles.rightPanel}><div className={styles.panels}><WhiteBalance /><BasicAdjustments /><ToneCurve /><HSLPanel /><DetailPanel /><EffectsPanel /></div></div>}
+      {rightPanelOpen && <div className={styles.rightPanel}><div className={styles.panels}><WhiteBalance /><BasicAdjustments /><ToneCurve /><HSLPanel /><DetailPanel /><LensCorrectionPanel /><EffectsPanel /></div></div>}
     </div>
   );
 }

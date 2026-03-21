@@ -2,6 +2,7 @@ use tauri::State;
 use tauri::ipc::Response;
 use crate::state::AppState;
 use crate::catalog::models::EditParams;
+use crate::imaging::lens_profiles::{self, LensProfileSummary};
 
 fn get_cached_preview(
     state: &AppState,
@@ -51,13 +52,15 @@ pub async fn apply_edits(
     let max_size = preview_size.unwrap_or(2048);
     let preview = get_cached_preview(&state, &image_id, &file_path, max_size)?;
 
+    let lens_meta = state.get_lens_metadata(&image_id).ok();
     let mut gpu = state.gpu.lock().map_err(|e| e.to_string())?;
-    let result = crate::gpu::pipeline::apply_edits_with_backend(
+    let result = crate::gpu::pipeline::apply_edits_with_backend_lens(
         gpu.as_mut(),
         preview.data.as_ref(),
         preview.width,
         preview.height,
         &params,
+        lens_meta.as_ref(),
     );
 
     // Pack as binary: 8-byte header (width + height as u32 LE) + raw RGBA bytes
@@ -165,4 +168,22 @@ pub async fn paste_edits(
     crate::catalog::queries::save_edit_params(&db, &image_id, &params_json)
         .map_err(|e| e.to_string())?;
     Ok(params)
+}
+
+#[tauri::command]
+pub async fn get_lens_profiles() -> Result<Vec<LensProfileSummary>, String> {
+    Ok(lens_profiles::get_all_summaries())
+}
+
+#[tauri::command]
+pub async fn detect_lens_profile(
+    state: State<'_, AppState>,
+    image_id: String,
+) -> Result<Option<LensProfileSummary>, String> {
+    let lens_meta = state.get_lens_metadata(&image_id)?;
+    let profile = lens_meta
+        .lens_name
+        .as_deref()
+        .and_then(|name| lens_profiles::find_profile_by_name(name));
+    Ok(profile.map(LensProfileSummary::from))
 }

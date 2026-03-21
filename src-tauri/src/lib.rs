@@ -46,6 +46,8 @@ pub fn run() {
             commands::develop::get_history,
             commands::develop::copy_edits,
             commands::develop::paste_edits,
+            commands::develop::get_lens_profiles,
+            commands::develop::detect_lens_profile,
             commands::export::export_image,
             commands::export::batch_export,
             commands::export::export_xmp_sidecar,

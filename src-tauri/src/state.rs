@@ -46,6 +46,17 @@ impl AppState {
         Ok(record.file_path.clone())
     }
 
+    /// Extract lens metadata (lens name, focal length) from an image record.
+    pub fn get_lens_metadata(&self, image_id: &str) -> Result<crate::gpu::pipeline::LensMetadata, String> {
+        let db = self.db.lock().map_err(|e| e.to_string())?;
+        let record = crate::catalog::queries::get_image_by_id(&db, image_id)
+            .map_err(|e| e.to_string())?;
+        Ok(crate::gpu::pipeline::LensMetadata {
+            lens_name: record.lens.clone(),
+            focal_length: record.focal_length,
+        })
+    }
+
     /// Look up the stored edit params for an image, falling back to defaults.
     pub fn get_image_edit_params(&self, image_id: &str) -> Result<EditParams, String> {
         let db = self.db.lock().map_err(|e| e.to_string())?;

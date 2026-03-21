@@ -24,6 +24,8 @@ vi.mock("../../api/processing", () => ({
   resetEdits: vi.fn().mockResolvedValue({ ...mockDefaults }),
   copyEdits: vi.fn().mockResolvedValue(undefined),
   pasteEdits: vi.fn().mockResolvedValue({ ...mockDefaults }),
+  getLensProfiles: vi.fn().mockResolvedValue([]),
+  detectLensProfile: vi.fn().mockResolvedValue(null),
 }));
 
 describe("BasicAdjustments panel", () => {

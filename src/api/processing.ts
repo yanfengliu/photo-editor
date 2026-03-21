@@ -43,3 +43,20 @@ export async function copyEdits(imageId: string): Promise<void> {
 export async function pasteEdits(imageId: string): Promise<EditParams> {
   return invoke("paste_edits", { imageId });
 }
+
+export interface LensProfileSummary {
+  lens_id: string;
+  lens_name: string;
+  mount: string;
+  focal_range: [number, number];
+}
+
+export async function getLensProfiles(): Promise<LensProfileSummary[]> {
+  return invoke("get_lens_profiles");
+}
+
+export async function detectLensProfile(
+  imageId: string
+): Promise<LensProfileSummary | null> {
+  return invoke("detect_lens_profile", { imageId });
+}

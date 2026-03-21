@@ -1,0 +1,7 @@
+.sub { font-size: var(--font-size-xs); color: var(--text-muted); margin-top: 8px; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.toggle { margin-top: 8px; }
+.toggleLabel { display: flex; align-items: center; gap: 8px; font-size: var(--font-size-sm); color: var(--text-secondary); cursor: pointer; }
+.toggleLabel input { accent-color: var(--accent); }
+.profileSelect { width: 100%; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: var(--font-size-sm); margin-top: 4px; }
+.profileSelect:focus { outline: none; border-color: var(--accent); }
+.detected { font-size: var(--font-size-xs); color: var(--accent); margin-top: 2px; }

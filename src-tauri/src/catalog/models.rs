@@ -92,7 +92,23 @@ pub struct EditParams {
     pub hsl_hue: [f32; 8],
     pub hsl_saturation: [f32; 8],
     pub hsl_luminance: [f32; 8],
+    // Lens Correction
+    #[serde(default)]
+    pub enable_lens_correction: bool,
+    #[serde(default)]
+    pub lens_profile_id: Option<String>,
+    #[serde(default)]
+    pub lens_distortion: f32,
+    #[serde(default = "default_true")]
+    pub lens_ca_correction: bool,
+    #[serde(default = "default_true")]
+    pub lens_vignette_correction: bool,
+    #[serde(default = "default_lens_amount")]
+    pub lens_distortion_amount: f32,
 }
+
+fn default_true() -> bool { true }
+fn default_lens_amount() -> f32 { 100.0 }
 
 impl Default for EditParams {
     fn default() -> Self {
@@ -136,6 +152,12 @@ impl Default for EditParams {
             hsl_hue: [0.0; 8],
             hsl_saturation: [0.0; 8],
             hsl_luminance: [0.0; 8],
+            enable_lens_correction: false,
+            lens_profile_id: None,
+            lens_distortion: 0.0,
+            lens_ca_correction: true,
+            lens_vignette_correction: true,
+            lens_distortion_amount: 100.0,
         }
     }
 }

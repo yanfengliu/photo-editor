@@ -2,514 +2,206 @@ use std::sync::mpsc;
 
 use rayon::prelude::*;
 
-use crate::catalog::models::{CurvePoint, EditParams};
+use crate::catalog::models::EditParams;
 use crate::gpu::context::GpuContext;
+use crate::gpu::cpu_edits::{apply_edits_to_pixel, apply_hsl_to_pixel, CpuEditProfile};
+use crate::gpu::curves::CurveLuts;
 use crate::gpu::passes::basic_adjustments::BasicAdjustmentsParams;
+use crate::gpu::spatial::{
+    apply_clarity_cpu, apply_denoise_cpu, apply_grain_cpu, apply_sharpening_cpu,
+    apply_vignette_cpu,
+};
+use crate::imaging::lens_profiles;
 
-const PARALLEL_PIXEL_THRESHOLD: usize = 512 * 512;
-
-/// Build a 256-entry LUT from curve control points using monotone cubic interpolation.
-/// Points must be sorted by x. Returns identity LUT if fewer than 2 points.
-fn build_curve_lut(points: &[CurvePoint]) -> [f32; 256] {
-    let mut lut = [0.0f32; 256];
-    let n = points.len();
-
-    if n < 2 {
-        // Identity
-        for i in 0..256 {
-            lut[i] = i as f32 / 255.0;
-        }
-        return lut;
-    }
-
-    // For exactly 2 points, use linear interpolation
-    if n == 2 {
-        for i in 0..256 {
-            let t = i as f32 / 255.0;
-            let dx = points[1].x - points[0].x;
-            if dx.abs() < 1e-6 {
-                lut[i] = points[0].y;
-            } else {
-                let frac = ((t - points[0].x) / dx).clamp(0.0, 1.0);
-                lut[i] = (points[0].y + frac * (points[1].y - points[0].y)).clamp(0.0, 1.0);
-            }
-        }
-        return lut;
-    }
-
-    // Monotone cubic (Fritsch-Carlson) spline
-    let xs: Vec<f32> = points.iter().map(|p| p.x).collect();
-    let ys: Vec<f32> = points.iter().map(|p| p.y).collect();
-
-    // Compute slopes between segments
-    let mut deltas = vec![0.0f32; n - 1];
-    let mut h = vec![0.0f32; n - 1];
-    for i in 0..n - 1 {
-        h[i] = xs[i + 1] - xs[i];
-        deltas[i] = if h[i].abs() < 1e-10 { 0.0 } else { (ys[i + 1] - ys[i]) / h[i] };
-    }
-
-    // Compute tangents with Fritsch-Carlson monotonicity
-    let mut m = vec![0.0f32; n];
-    m[0] = deltas[0];
-    m[n - 1] = deltas[n - 2];
-    for i in 1..n - 1 {
-        if deltas[i - 1] * deltas[i] <= 0.0 {
-            m[i] = 0.0;
-        } else {
-            m[i] = (deltas[i - 1] + deltas[i]) / 2.0;
-        }
-    }
-
-    // Enforce monotonicity
-    for i in 0..n - 1 {
-        if deltas[i].abs() < 1e-10 {
-            m[i] = 0.0;
-            m[i + 1] = 0.0;
-        } else {
-            let alpha = m[i] / deltas[i];
-            let beta = m[i + 1] / deltas[i];
-            let s = alpha * alpha + beta * beta;
-            if s > 9.0 {
-                let tau = 3.0 / s.sqrt();
-                m[i] = tau * alpha * deltas[i];
-                m[i + 1] = tau * beta * deltas[i];
-            }
-        }
-    }
-
-    // Evaluate spline at each LUT entry
-    for i in 0..256 {
-        let t = i as f32 / 255.0;
-
-        // Clamp to curve range
-        if t <= xs[0] {
-            lut[i] = ys[0].clamp(0.0, 1.0);
-            continue;
-        }
-        if t >= xs[n - 1] {
-            lut[i] = ys[n - 1].clamp(0.0, 1.0);
-            continue;
-        }
-
-        // Find segment
-        let mut seg = 0;
-        for j in 0..n - 1 {
-            if t >= xs[j] && t < xs[j + 1] {
-                seg = j;
-                break;
-            }
-        }
-
-        let dx = h[seg];
-        if dx.abs() < 1e-10 {
-            lut[i] = ys[seg].clamp(0.0, 1.0);
-            continue;
-        }
-
-        let frac = (t - xs[seg]) / dx;
-        let frac2 = frac * frac;
-        let frac3 = frac2 * frac;
-
-        // Hermite basis
-        let h00 = 2.0 * frac3 - 3.0 * frac2 + 1.0;
-        let h10 = frac3 - 2.0 * frac2 + frac;
-        let h01 = -2.0 * frac3 + 3.0 * frac2;
-        let h11 = frac3 - frac2;
-
-        let val = h00 * ys[seg] + h10 * dx * m[seg] + h01 * ys[seg + 1] + h11 * dx * m[seg + 1];
-        lut[i] = val.clamp(0.0, 1.0);
-    }
-
-    lut
+/// Lens metadata from EXIF, used for auto-detecting lens profiles
+#[derive(Debug, Clone, Default)]
+pub struct LensMetadata {
+    pub lens_name: Option<String>,
+    pub focal_length: Option<f64>,
 }
 
-/// Check if a curve is the identity (straight line from (0,0) to (1,1))
-fn is_identity_curve(points: &[CurvePoint]) -> bool {
-    if points.len() != 2 {
-        return false;
+pub const PARALLEL_PIXEL_THRESHOLD: usize = 512 * 512;
+
+/// Apply lens correction if enabled, returning corrected data or original
+fn apply_lens_correction_step(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    params: &EditParams,
+    lens_meta: Option<&LensMetadata>,
+) -> Option<Vec<u8>> {
+    if !params.enable_lens_correction {
+        return None;
     }
-    (points[0].x - 0.0).abs() < 0.001
-        && (points[0].y - 0.0).abs() < 0.001
-        && (points[1].x - 1.0).abs() < 0.001
-        && (points[1].y - 1.0).abs() < 0.001
-}
-
-/// Pre-built LUTs for all 4 curve channels
-struct CurveLuts {
-    rgb: [f32; 256],
-    r: [f32; 256],
-    g: [f32; 256],
-    b: [f32; 256],
-    has_rgb: bool,
-    has_r: bool,
-    has_g: bool,
-    has_b: bool,
-}
-
-impl CurveLuts {
-    fn from_params(params: &EditParams) -> Self {
-        let has_rgb = !is_identity_curve(&params.curve_rgb);
-        let has_r = !is_identity_curve(&params.curve_r);
-        let has_g = !is_identity_curve(&params.curve_g);
-        let has_b = !is_identity_curve(&params.curve_b);
-        Self {
-            rgb: if has_rgb { build_curve_lut(&params.curve_rgb) } else { [0.0; 256] },
-            r: if has_r { build_curve_lut(&params.curve_r) } else { [0.0; 256] },
-            g: if has_g { build_curve_lut(&params.curve_g) } else { [0.0; 256] },
-            b: if has_b { build_curve_lut(&params.curve_b) } else { [0.0; 256] },
-            has_rgb,
-            has_r,
-            has_g,
-            has_b,
-        }
+    if !params.lens_ca_correction && !params.lens_vignette_correction && params.lens_distortion.abs() < 0.001 {
+        return None;
     }
 
-    fn is_identity(&self) -> bool {
-        !self.has_rgb && !self.has_r && !self.has_g && !self.has_b
-    }
+    // Find profile: explicit ID first, then auto-detect from EXIF
+    let profile = params
+        .lens_profile_id
+        .as_deref()
+        .and_then(|id| lens_profiles::find_profile_by_id(id))
+        .or_else(|| {
+            lens_meta
+                .and_then(|m| m.lens_name.as_deref())
+                .and_then(|name| lens_profiles::find_profile_by_name(name))
+        });
 
-    fn apply(&self, pixel: &mut [u8]) {
-        let mut r = pixel[0] as f32 / 255.0;
-        let mut g = pixel[1] as f32 / 255.0;
-        let mut b = pixel[2] as f32 / 255.0;
-
-        // Per-channel curves first, then master RGB
-        if self.has_r { r = sample_lut(&self.r, r); }
-        if self.has_g { g = sample_lut(&self.g, g); }
-        if self.has_b { b = sample_lut(&self.b, b); }
-        if self.has_rgb {
-            r = sample_lut(&self.rgb, r);
-            g = sample_lut(&self.rgb, g);
-            b = sample_lut(&self.rgb, b);
-        }
-
-        pixel[0] = (r.clamp(0.0, 1.0) * 255.0) as u8;
-        pixel[1] = (g.clamp(0.0, 1.0) * 255.0) as u8;
-        pixel[2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
-    }
-}
-
-fn sample_lut(lut: &[f32; 256], val: f32) -> f32 {
-    let idx_f = val.clamp(0.0, 1.0) * 255.0;
-    let lo = idx_f.floor() as usize;
-    let hi = (lo + 1).min(255);
-    let frac = idx_f - idx_f.floor();
-    lut[lo] * (1.0 - frac) + lut[hi] * frac
-}
-
-#[derive(Clone, Copy)]
-struct CpuEditProfile {
-    apply_white_balance: bool,
-    temp_red_scale: f32,
-    temp_blue_scale: f32,
-    tint_green_scale: f32,
-    apply_exposure: bool,
-    exposure_scale: f32,
-    apply_contrast: bool,
-    contrast_scale: f32,
-    apply_tone_regions: bool,
-    highlights_factor: f32,
-    shadows_factor: f32,
-    whites_factor: f32,
-    blacks_factor: f32,
-    apply_saturation: bool,
-    saturation_scale: f32,
-    apply_vibrance: bool,
-    vibrance_scale: f32,
-    apply_dehaze: bool,
-    dehaze_scale: f32,
-    apply_hsl: bool,
-    hsl_hue: [f32; 8],
-    hsl_saturation: [f32; 8],
-    hsl_luminance: [f32; 8],
-}
-
-impl CpuEditProfile {
-    fn from_params(params: &EditParams) -> Self {
-        let temp_shift = (params.temperature - 6500.0) / 6500.0;
-        let temp_red_scale = 1.0 + temp_shift * 0.1;
-        let temp_blue_scale = 1.0 - temp_shift * 0.1;
-        let tint_green_scale = 1.0 + params.tint / 150.0 * 0.05;
-        let exposure_scale = (2.0_f32).powf(params.exposure);
-        let contrast_scale = 1.0 + params.contrast / 100.0;
-        let highlights_factor = params.highlights / 200.0;
-        let shadows_factor = params.shadows / 200.0;
-        let whites_factor = params.whites / 200.0;
-        let blacks_factor = params.blacks / 200.0;
-        let saturation_scale = 1.0 + params.saturation / 100.0;
-        let vibrance_scale = params.vibrance / 100.0;
-        let dehaze_scale = params.dehaze / 100.0;
-
-        let apply_tone_regions = params.highlights.abs() > 0.001
-            || params.shadows.abs() > 0.001
-            || params.whites.abs() > 0.001
-            || params.blacks.abs() > 0.001;
-
-        let apply_hsl = params.hsl_hue.iter().any(|v| v.abs() > 0.001)
-            || params.hsl_saturation.iter().any(|v| v.abs() > 0.001)
-            || params.hsl_luminance.iter().any(|v| v.abs() > 0.001);
-
-        let mut hsl_hue = [0.0f32; 8];
-        let mut hsl_saturation = [0.0f32; 8];
-        let mut hsl_luminance = [0.0f32; 8];
-        for i in 0..8 {
-            hsl_hue[i] = params.hsl_hue[i];
-            hsl_saturation[i] = params.hsl_saturation[i];
-            hsl_luminance[i] = params.hsl_luminance[i];
-        }
-
-        Self {
-            apply_white_balance: temp_shift.abs() > 0.001 || params.tint.abs() > 0.001,
-            temp_red_scale,
-            temp_blue_scale,
-            tint_green_scale,
-            apply_exposure: params.exposure.abs() > 0.001,
-            exposure_scale,
-            apply_contrast: params.contrast.abs() > 0.001,
-            contrast_scale,
-            apply_tone_regions,
-            highlights_factor,
-            shadows_factor,
-            whites_factor,
-            blacks_factor,
-            apply_saturation: params.saturation.abs() > 0.001,
-            saturation_scale,
-            apply_vibrance: params.vibrance.abs() > 0.001,
-            vibrance_scale,
-            apply_dehaze: params.dehaze.abs() > 0.01,
-            dehaze_scale,
-            apply_hsl,
-            hsl_hue,
-            hsl_saturation,
-            hsl_luminance,
-        }
-    }
-
-    fn is_neutral(self) -> bool {
-        !self.apply_white_balance
-            && !self.apply_exposure
-            && !self.apply_contrast
-            && !self.apply_tone_regions
-            && !self.apply_saturation
-            && !self.apply_vibrance
-            && !self.apply_dehaze
-            && !self.apply_hsl
-    }
-}
-
-fn rgb_to_hsl(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
-    let max_c = r.max(g).max(b);
-    let min_c = r.min(g).min(b);
-    let l = (max_c + min_c) * 0.5;
-    if (max_c - min_c).abs() < 1e-6 {
-        return (0.0, 0.0, l);
-    }
-    let d = max_c - min_c;
-    let s = if l < 0.5 { d / (max_c + min_c) } else { d / (2.0 - max_c - min_c) };
-    let mut h = if (max_c - r).abs() < 1e-6 {
-        let mut v = (g - b) / d;
-        if g < b { v += 6.0; }
-        v
-    } else if (max_c - g).abs() < 1e-6 {
-        (b - r) / d + 2.0
-    } else {
-        (r - g) / d + 4.0
+    let profile = match profile {
+        Some(p) => p,
+        None => return None,
     };
-    h /= 6.0;
-    (h, s, l)
+
+    let focal = lens_meta
+        .and_then(|m| m.focal_length)
+        .unwrap_or(profile.focal_range.0);
+
+    let correct_distortion = params.lens_distortion.abs() > 0.001;
+    let amount = params.lens_distortion_amount as f64;
+
+    Some(crate::imaging::lens_correction::apply_lens_correction(
+        data,
+        width,
+        height,
+        profile,
+        focal,
+        correct_distortion,
+        params.lens_ca_correction,
+        params.lens_vignette_correction,
+        amount,
+    ))
 }
 
-fn hue_to_rgb(p: f32, q: f32, t_in: f32) -> f32 {
-    let mut t = t_in;
-    if t < 0.0 { t += 1.0; }
-    if t > 1.0 { t -= 1.0; }
-    if t < 1.0 / 6.0 { return p + (q - p) * 6.0 * t; }
-    if t < 1.0 / 2.0 { return q; }
-    if t < 2.0 / 3.0 { return p + (q - p) * (2.0 / 3.0 - t) * 6.0; }
-    p
+pub fn apply_edits_cpu(rgba_data: &[u8], width: u32, height: u32, params: &EditParams) -> Vec<u8> {
+    apply_edits_cpu_with_lens(rgba_data, width, height, params, None)
 }
 
-fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
-    if s.abs() < 1e-6 {
-        return (l, l, l);
-    }
-    let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
-    let p = 2.0 * l - q;
-    (
-        hue_to_rgb(p, q, h + 1.0 / 3.0),
-        hue_to_rgb(p, q, h),
-        hue_to_rgb(p, q, h - 1.0 / 3.0),
-    )
-}
-
-fn get_channel_weight(hue: f32, channel: u32) -> f32 {
-    let center = channel as f32 / 8.0;
-    let mut dist = (hue - center).abs();
-    dist = dist.min(1.0 - dist); // wrap around
-    let width = 1.0 / 8.0;
-    (1.0 - dist / width).max(0.0)
-}
-
-fn apply_hsl_to_pixel(pixel: &mut [u8], profile: CpuEditProfile) {
-    let r = pixel[0] as f32 / 255.0;
-    let g = pixel[1] as f32 / 255.0;
-    let b = pixel[2] as f32 / 255.0;
-
-    let (mut h, mut s, mut l) = rgb_to_hsl(r, g, b);
-
-    for ch in 0..8u32 {
-        let w = get_channel_weight(h, ch);
-        if w > 0.0 {
-            h += profile.hsl_hue[ch as usize] / 360.0 * w;
-            s *= 1.0 + profile.hsl_saturation[ch as usize] / 100.0 * w;
-            l *= 1.0 + profile.hsl_luminance[ch as usize] / 100.0 * w;
-        }
-    }
-
-    // Wrap hue, clamp s/l
-    h = h.rem_euclid(1.0);
-    s = s.clamp(0.0, 1.0);
-    l = l.clamp(0.0, 1.0);
-
-    let (nr, ng, nb) = hsl_to_rgb(h, s, l);
-    pixel[0] = (nr.clamp(0.0, 1.0) * 255.0) as u8;
-    pixel[1] = (ng.clamp(0.0, 1.0) * 255.0) as u8;
-    pixel[2] = (nb.clamp(0.0, 1.0) * 255.0) as u8;
-}
-
-fn apply_edits_to_pixel(pixel: &mut [u8], profile: CpuEditProfile) {
-    let mut r = pixel[0] as f32 / 255.0;
-    let mut g = pixel[1] as f32 / 255.0;
-    let mut b = pixel[2] as f32 / 255.0;
-
-    if profile.apply_white_balance {
-        r *= profile.temp_red_scale;
-        b *= profile.temp_blue_scale;
-        g *= profile.tint_green_scale;
-    }
-
-    if profile.apply_exposure {
-        r *= profile.exposure_scale;
-        g *= profile.exposure_scale;
-        b *= profile.exposure_scale;
-    }
-
-    if profile.apply_contrast {
-        r = (r - 0.5) * profile.contrast_scale + 0.5;
-        g = (g - 0.5) * profile.contrast_scale + 0.5;
-        b = (b - 0.5) * profile.contrast_scale + 0.5;
-    }
-
-    // Tone regions: smooth power-curve masks instead of hard thresholds
-    if profile.apply_tone_regions {
-        let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-
-        // Smooth luminance masks
-        let hl_mask = lum * lum;                         // highlights
-        let sh_mask = (1.0 - lum) * (1.0 - lum);        // shadows
-        let w_mask = hl_mask * hl_mask;                  // whites (tighter)
-        let b_mask = sh_mask * sh_mask;                  // blacks (tighter)
-
-        let lum_shift = hl_mask * profile.highlights_factor
-                      + sh_mask * profile.shadows_factor
-                      + w_mask * profile.whites_factor
-                      + b_mask * profile.blacks_factor;
-
-        if lum_shift.abs() > 0.0001 {
-            let target_lum = (lum + lum_shift).clamp(0.0, 1.5);
-            let ratio = if lum < 0.001 { 1.0 + lum_shift } else { target_lum / lum };
-            r *= ratio;
-            g *= ratio;
-            b *= ratio;
-        }
-    }
-
-    // Saturation
-    if profile.apply_saturation {
-        let gray = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-        r = gray + (r - gray) * profile.saturation_scale;
-        g = gray + (g - gray) * profile.saturation_scale;
-        b = gray + (b - gray) * profile.saturation_scale;
-    }
-
-    // Vibrance — recalculate gray after saturation
-    if profile.apply_vibrance {
-        let gray = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-        let max_c = r.max(g).max(b);
-        let min_c = r.min(g).min(b);
-        let cur_sat = if max_c > 0.0 { (max_c - min_c) / max_c } else { 0.0 };
-        let vibrance_factor = 1.0 + profile.vibrance_scale * (1.0 - cur_sat);
-        r = gray + (r - gray) * vibrance_factor;
-        g = gray + (g - gray) * vibrance_factor;
-        b = gray + (b - gray) * vibrance_factor;
-    }
-
-    // Dehaze
-    if profile.apply_dehaze {
-        let min_c = r.min(g).min(b);
-        r += (r - min_c) * profile.dehaze_scale;
-        g += (g - min_c) * profile.dehaze_scale;
-        b += (b - min_c) * profile.dehaze_scale;
-    }
-
-    pixel[0] = (r.clamp(0.0, 1.0) * 255.0) as u8;
-    pixel[1] = (g.clamp(0.0, 1.0) * 255.0) as u8;
-    pixel[2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
-}
-
-pub fn apply_edits_cpu(rgba_data: &[u8], params: &EditParams) -> Vec<u8> {
+pub fn apply_edits_cpu_with_lens(rgba_data: &[u8], width: u32, height: u32, params: &EditParams, lens_meta: Option<&LensMetadata>) -> Vec<u8> {
     if rgba_data.is_empty() {
         return Vec::new();
     }
 
+    // Lens correction runs first (geometric transform before color adjustments)
+    let corrected;
+    let input = if let Some(lc) = apply_lens_correction_step(rgba_data, width, height, params, lens_meta) {
+        corrected = lc;
+        &corrected
+    } else {
+        rgba_data
+    };
+
     let profile = CpuEditProfile::from_params(params);
     let curves = CurveLuts::from_params(params);
 
-    let mut result = rgba_data.to_vec();
+    let mut result = input.to_vec();
     let pixel_count = result.len() / 4;
 
+    // --- Per-pixel passes: basic adjustments, HSL, curves ---
     let apply_basic = !profile.is_neutral();
     let apply_curves = !curves.is_identity();
     let apply_hsl = profile.apply_hsl;
 
-    // Nothing to do check (including HSL)
-    if !apply_basic && !apply_curves && !apply_hsl {
-        return rgba_data.to_vec();
+    if apply_basic || apply_curves || apply_hsl {
+        let process_pixel = |pixel: &mut [u8]| {
+            if apply_basic { apply_edits_to_pixel(pixel, profile); }
+            if apply_hsl { apply_hsl_to_pixel(pixel, profile); }
+            if apply_curves { curves.apply(pixel); }
+        };
+
+        if pixel_count >= PARALLEL_PIXEL_THRESHOLD {
+            result.par_chunks_exact_mut(4).for_each(process_pixel);
+        } else {
+            result.chunks_exact_mut(4).for_each(process_pixel);
+        }
     }
 
-    let process_pixel = |pixel: &mut [u8]| {
-        if apply_basic { apply_edits_to_pixel(pixel, profile); }
-        if apply_hsl { apply_hsl_to_pixel(pixel, profile); }
-        if apply_curves { curves.apply(pixel); }
-    };
+    // --- Spatial passes (need full buffer + dimensions) ---
+    if params.sharpening_amount > 0.01 {
+        apply_sharpening_cpu(&mut result, width, height, params.sharpening_amount, params.sharpening_radius);
+    }
 
-    if pixel_count >= PARALLEL_PIXEL_THRESHOLD {
-        result.par_chunks_exact_mut(4).for_each(process_pixel);
-    } else {
-        result.chunks_exact_mut(4).for_each(process_pixel);
+    if params.clarity.abs() > 0.01 {
+        apply_clarity_cpu(&mut result, width, height, params.clarity);
+    }
+
+    if params.denoise_luminance > 0.01 || params.denoise_color > 0.01 {
+        apply_denoise_cpu(&mut result, width, height, params.denoise_luminance, params.denoise_color);
+    }
+
+    // --- Coordinate-aware passes ---
+    if params.vignette_amount.abs() > 0.01 {
+        apply_vignette_cpu(&mut result, width, height, params.vignette_amount);
+    }
+
+    if params.grain_amount > 0.01 {
+        apply_grain_cpu(&mut result, width, height, params.grain_amount, params.grain_size);
     }
 
     result
 }
 
-pub fn supports_gpu_basic_pipeline(params: &EditParams) -> bool {
+/// Check if any non-basic CPU post-processing is needed
+fn needs_cpu_post_processing(params: &EditParams) -> bool {
     let defaults = EditParams::default();
 
-    params.clarity.abs() < 0.001
-        && params.sharpening_amount.abs() < 0.001
-        && params.denoise_luminance.abs() < 0.001
-        && params.denoise_color.abs() < 0.001
-        && !params.denoise_ai
-        && params.vignette_amount.abs() < 0.001
-        && params.grain_amount.abs() < 0.001
-        && params.curve_rgb == defaults.curve_rgb
-        && params.curve_r == defaults.curve_r
-        && params.curve_g == defaults.curve_g
-        && params.curve_b == defaults.curve_b
-        && params.hsl_hue == defaults.hsl_hue
-        && params.hsl_saturation == defaults.hsl_saturation
-        && params.hsl_luminance == defaults.hsl_luminance
+    params.clarity.abs() > 0.001
+        || params.sharpening_amount > 0.001
+        || params.denoise_luminance > 0.001
+        || params.denoise_color > 0.001
+        || params.vignette_amount.abs() > 0.001
+        || params.grain_amount > 0.001
+        || params.curve_rgb != defaults.curve_rgb
+        || params.curve_r != defaults.curve_r
+        || params.curve_g != defaults.curve_g
+        || params.curve_b != defaults.curve_b
+        || params.hsl_hue != defaults.hsl_hue
+        || params.hsl_saturation != defaults.hsl_saturation
+        || params.hsl_luminance != defaults.hsl_luminance
+}
+
+/// Apply only the non-basic CPU passes (HSL, curves, spatial, coordinate-aware)
+fn apply_cpu_post_processing(mut data: Vec<u8>, width: u32, height: u32, params: &EditParams) -> Vec<u8> {
+    let profile = CpuEditProfile::from_params(params);
+    let curves = CurveLuts::from_params(params);
+    let pixel_count = data.len() / 4;
+
+    // Per-pixel: HSL + curves (basic adjustments already done by GPU)
+    let apply_hsl = profile.apply_hsl;
+    let apply_curves = !curves.is_identity();
+
+    if apply_hsl || apply_curves {
+        let process_pixel = |pixel: &mut [u8]| {
+            if apply_hsl { apply_hsl_to_pixel(pixel, profile); }
+            if apply_curves { curves.apply(pixel); }
+        };
+        if pixel_count >= PARALLEL_PIXEL_THRESHOLD {
+            data.par_chunks_exact_mut(4).for_each(process_pixel);
+        } else {
+            data.chunks_exact_mut(4).for_each(process_pixel);
+        }
+    }
+
+    // Spatial passes
+    if params.sharpening_amount > 0.01 {
+        apply_sharpening_cpu(&mut data, width, height, params.sharpening_amount, params.sharpening_radius);
+    }
+    if params.clarity.abs() > 0.01 {
+        apply_clarity_cpu(&mut data, width, height, params.clarity);
+    }
+    if params.denoise_luminance > 0.01 || params.denoise_color > 0.01 {
+        apply_denoise_cpu(&mut data, width, height, params.denoise_luminance, params.denoise_color);
+    }
+
+    // Coordinate-aware passes
+    if params.vignette_amount.abs() > 0.01 {
+        apply_vignette_cpu(&mut data, width, height, params.vignette_amount);
+    }
+    if params.grain_amount > 0.01 {
+        apply_grain_cpu(&mut data, width, height, params.grain_amount, params.grain_size);
+    }
+
+    data
 }
 
 pub fn apply_edits_with_backend(
@@ -519,16 +211,80 @@ pub fn apply_edits_with_backend(
     height: u32,
     params: &EditParams,
 ) -> Vec<u8> {
+    apply_edits_with_backend_lens(gpu, rgba_data, width, height, params, None)
+}
+
+pub fn apply_edits_with_backend_lens(
+    gpu: Option<&mut GpuContext>,
+    rgba_data: &[u8],
+    width: u32,
+    height: u32,
+    params: &EditParams,
+    lens_meta: Option<&LensMetadata>,
+) -> Vec<u8> {
+    // Lens correction runs first (geometric transform)
+    let corrected;
+    let input = if let Some(lc) = apply_lens_correction_step(rgba_data, width, height, params, lens_meta) {
+        corrected = lc;
+        &corrected
+    } else {
+        rgba_data
+    };
+
+    // Try GPU for basic adjustments (WB, exposure, contrast, tone regions, sat, vibrance, dehaze)
     if let Some(gpu_ctx) = gpu {
-        if supports_gpu_basic_pipeline(params) {
-            match apply_edits_gpu_basic(gpu_ctx, rgba_data, width, height, params) {
-                Ok(result) => return result,
-                Err(err) => log::warn!("GPU pipeline failed, falling back to CPU: {}", err),
+        match apply_edits_gpu_basic(gpu_ctx, input, width, height, params) {
+            Ok(result) => {
+                // GPU handled basic adjustments; apply remaining passes on CPU if needed
+                if needs_cpu_post_processing(params) {
+                    return apply_cpu_post_processing(result, width, height, params);
+                }
+                return result;
             }
+            Err(err) => log::warn!("GPU pipeline failed, falling back to CPU: {}", err),
         }
     }
 
-    apply_edits_cpu(rgba_data, params)
+    // Full CPU fallback (skip lens correction since we already did it above)
+    let profile = CpuEditProfile::from_params(params);
+    let curves = CurveLuts::from_params(params);
+    let mut result = input.to_vec();
+    let pixel_count = result.len() / 4;
+
+    let apply_basic = !profile.is_neutral();
+    let apply_curves = !curves.is_identity();
+    let apply_hsl = profile.apply_hsl;
+
+    if apply_basic || apply_curves || apply_hsl {
+        let process_pixel = |pixel: &mut [u8]| {
+            if apply_basic { apply_edits_to_pixel(pixel, profile); }
+            if apply_hsl { apply_hsl_to_pixel(pixel, profile); }
+            if apply_curves { curves.apply(pixel); }
+        };
+        if pixel_count >= PARALLEL_PIXEL_THRESHOLD {
+            result.par_chunks_exact_mut(4).for_each(process_pixel);
+        } else {
+            result.chunks_exact_mut(4).for_each(process_pixel);
+        }
+    }
+
+    if params.sharpening_amount > 0.01 {
+        apply_sharpening_cpu(&mut result, width, height, params.sharpening_amount, params.sharpening_radius);
+    }
+    if params.clarity.abs() > 0.01 {
+        apply_clarity_cpu(&mut result, width, height, params.clarity);
+    }
+    if params.denoise_luminance > 0.01 || params.denoise_color > 0.01 {
+        apply_denoise_cpu(&mut result, width, height, params.denoise_luminance, params.denoise_color);
+    }
+    if params.vignette_amount.abs() > 0.01 {
+        apply_vignette_cpu(&mut result, width, height, params.vignette_amount);
+    }
+    if params.grain_amount > 0.01 {
+        apply_grain_cpu(&mut result, width, height, params.grain_amount, params.grain_size);
+    }
+
+    result
 }
 
 fn apply_edits_gpu_basic(
@@ -646,7 +402,8 @@ fn apply_edits_gpu_basic(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::models::EditParams;
+    use crate::catalog::models::{CurvePoint, EditParams};
+    use crate::gpu::curves::{build_curve_lut, is_identity_curve};
 
     fn make_gray_image(value: u8, pixel_count: usize) -> Vec<u8> {
         let mut data = Vec::with_capacity(pixel_count * 4);
@@ -656,11 +413,17 @@ mod tests {
         data
     }
 
+    /// Helper: apply CPU edits to a 1-row image (for per-pixel tests)
+    fn cpu_edit(input: &[u8], params: &EditParams) -> Vec<u8> {
+        let pixel_count = input.len() / 4;
+        apply_edits_cpu(input, pixel_count as u32, 1, params)
+    }
+
     #[test]
     fn test_neutral_params_no_change() {
         let input = make_gray_image(128, 4);
         let params = EditParams::default();
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         for i in 0..4 {
             let idx = i * 4;
             let diff = (output[idx] as i32 - input[idx] as i32).abs();
@@ -673,7 +436,7 @@ mod tests {
         let input = make_gray_image(100, 1);
         let mut params = EditParams::default();
         params.exposure = 1.0;
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         assert!(output[0] > input[0], "Exposure +1 should brighten: {} vs {}", output[0], input[0]);
     }
 
@@ -682,7 +445,7 @@ mod tests {
         let input = make_gray_image(200, 1);
         let mut params = EditParams::default();
         params.exposure = -1.0;
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         assert!(output[0] < input[0], "Exposure -1 should darken: {} vs {}", output[0], input[0]);
     }
 
@@ -691,7 +454,7 @@ mod tests {
         let input = vec![128, 128, 128, 255];
         let mut params = EditParams::default();
         params.contrast = 50.0;
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         let diff = (output[0] as i32 - 128).abs();
         assert!(diff < 10, "Mid-gray with contrast should stay near 128, got {}", output[0]);
     }
@@ -701,7 +464,7 @@ mod tests {
         let input = vec![255, 0, 0, 255];
         let mut params = EditParams::default();
         params.saturation = -100.0;
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         let max_diff = (output[0] as i32 - output[1] as i32).abs()
             .max((output[1] as i32 - output[2] as i32).abs());
         assert!(max_diff < 5, "Desaturated red should be near gray, got ({}, {}, {})", output[0], output[1], output[2]);
@@ -712,7 +475,7 @@ mod tests {
         let input = make_gray_image(128, 1);
         let mut params = EditParams::default();
         params.temperature = 10000.0;
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         assert!(output[0] >= output[2], "Warm WB should shift red > blue: R={}, B={}", output[0], output[2]);
     }
 
@@ -721,7 +484,7 @@ mod tests {
         let input = make_gray_image(128, 1);
         let mut params = EditParams::default();
         params.temperature = 3000.0;
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         assert!(output[2] >= output[0], "Cool WB should shift blue > red: R={}, B={}", output[0], output[2]);
     }
 
@@ -730,7 +493,7 @@ mod tests {
         let input = vec![100, 100, 100, 200];
         let mut params = EditParams::default();
         params.exposure = 1.0;
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         assert_eq!(output[3], 200, "Alpha should be preserved");
     }
 
@@ -739,7 +502,7 @@ mod tests {
         let input = vec![250, 250, 250, 255];
         let mut params = EditParams::default();
         params.exposure = 3.0;
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         assert_eq!(output[0], 255, "Output should be clamped to 255");
         assert_eq!(output[1], 255);
         assert_eq!(output[2], 255);
@@ -750,7 +513,7 @@ mod tests {
         let input = make_gray_image(128, 1);
         let mut params = EditParams::default();
         params.dehaze = 50.0;
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         assert_eq!(output[3], 255);
     }
 
@@ -762,7 +525,7 @@ mod tests {
         params.contrast = 20.0;
         params.saturation = 10.0;
         params.vibrance = 10.0;
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         assert_eq!(output.len(), input.len());
         for i in 0..4 {
             assert_eq!(output[i * 4 + 3], 255);
@@ -773,21 +536,21 @@ mod tests {
     fn test_empty_input() {
         let input: Vec<u8> = vec![];
         let params = EditParams::default();
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         assert!(output.is_empty());
     }
 
     #[test]
-    fn test_gpu_supports_basic_pipeline_for_supported_params() {
+    fn test_needs_cpu_post_processing_default() {
         let params = EditParams::default();
-        assert!(supports_gpu_basic_pipeline(&params));
+        assert!(!needs_cpu_post_processing(&params));
     }
 
     #[test]
-    fn test_gpu_support_rejects_unsupported_params() {
+    fn test_needs_cpu_post_processing_with_clarity() {
         let mut params = EditParams::default();
         params.clarity = 10.0;
-        assert!(!supports_gpu_basic_pipeline(&params));
+        assert!(needs_cpu_post_processing(&params));
     }
 
     // --- Tone curve tests ---
@@ -796,7 +559,7 @@ mod tests {
     fn test_identity_curve_no_change() {
         let input = make_gray_image(128, 1);
         let params = EditParams::default(); // default curves are identity
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         assert_eq!(output[0], 128);
     }
 
@@ -815,23 +578,19 @@ mod tests {
 
     #[test]
     fn test_curve_lut_brighten() {
-        // Curve that lifts midtones: (0,0) -> (0.5, 0.75) -> (1,1)
         let points = vec![
             CurvePoint { x: 0.0, y: 0.0 },
             CurvePoint { x: 0.5, y: 0.75 },
             CurvePoint { x: 1.0, y: 1.0 },
         ];
         let lut = build_curve_lut(&points);
-        // At x=0.5, output should be ~0.75
         assert!(lut[128] > 0.6, "Midpoint should be lifted: got {}", lut[128]);
-        // Endpoints should be preserved
         assert!(lut[0] < 0.01, "Black point should be near 0: got {}", lut[0]);
         assert!(lut[255] > 0.99, "White point should be near 1: got {}", lut[255]);
     }
 
     #[test]
     fn test_curve_lut_darken() {
-        // Curve that pulls midtones down: (0,0) -> (0.5, 0.25) -> (1,1)
         let points = vec![
             CurvePoint { x: 0.0, y: 0.0 },
             CurvePoint { x: 0.5, y: 0.25 },
@@ -843,14 +602,14 @@ mod tests {
 
     #[test]
     fn test_rgb_curve_brightens_image() {
-        let input = make_gray_image(128, 1); // mid-gray
+        let input = make_gray_image(128, 1);
         let mut params = EditParams::default();
         params.curve_rgb = vec![
             CurvePoint { x: 0.0, y: 0.0 },
             CurvePoint { x: 0.5, y: 0.75 },
             CurvePoint { x: 1.0, y: 1.0 },
         ];
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         assert!(output[0] > 128, "Brightening curve should lift mid-gray: got {}", output[0]);
     }
 
@@ -858,13 +617,12 @@ mod tests {
     fn test_per_channel_curve_shifts_color() {
         let input = make_gray_image(128, 1);
         let mut params = EditParams::default();
-        // Boost red channel only
         params.curve_r = vec![
             CurvePoint { x: 0.0, y: 0.0 },
             CurvePoint { x: 0.5, y: 0.8 },
             CurvePoint { x: 1.0, y: 1.0 },
         ];
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         assert!(output[0] > output[1], "Red channel boost: R={} should be > G={}", output[0], output[1]);
         assert!(output[0] > output[2], "Red channel boost: R={} should be > B={}", output[0], output[2]);
     }
@@ -879,8 +637,7 @@ mod tests {
             CurvePoint { x: 0.5, y: 0.75 },
             CurvePoint { x: 1.0, y: 1.0 },
         ];
-        let output = apply_edits_cpu(&input, &params);
-        // Both exposure and curve should brighten
+        let output = cpu_edit(&input, &params);
         assert!(output[0] > input[0], "Combined exposure+curve should brighten: {} vs {}", output[0], input[0]);
     }
 
@@ -893,7 +650,7 @@ mod tests {
             CurvePoint { x: 0.5, y: 0.8 },
             CurvePoint { x: 1.0, y: 1.0 },
         ];
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         assert_eq!(output[3], 200, "Alpha should be preserved through curve: got {}", output[3]);
     }
 
@@ -913,15 +670,14 @@ mod tests {
         assert!(!is_identity_curve(&non_identity));
     }
 
+    // --- HSL tests ---
+
     #[test]
     fn test_hsl_saturation_desaturates_red() {
-        // Pure red pixel
         let input = vec![255, 0, 0, 255];
         let mut params = EditParams::default();
-        // Desaturate the red channel (channel 0)
         params.hsl_saturation = [-100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-        let output = apply_edits_cpu(&input, &params);
-        // Red should lose saturation — channels should converge
+        let output = cpu_edit(&input, &params);
         let max_diff = (output[0] as i32 - output[1] as i32).abs()
             .max((output[1] as i32 - output[2] as i32).abs());
         assert!(max_diff < 30, "Desaturated red should be near gray, got ({}, {}, {})", output[0], output[1], output[2]);
@@ -929,39 +685,103 @@ mod tests {
 
     #[test]
     fn test_hsl_hue_shifts_red() {
-        // Pure red pixel
         let input = vec![255, 0, 0, 255];
         let mut params = EditParams::default();
-        // Shift red hue by +120 degrees (toward green)
         params.hsl_hue = [120.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-        let output = apply_edits_cpu(&input, &params);
-        // Green channel should now be dominant
+        let output = cpu_edit(&input, &params);
         assert!(output[1] > output[0] && output[1] > output[2],
             "Hue-shifted red should be greenish, got ({}, {}, {})", output[0], output[1], output[2]);
     }
 
     #[test]
     fn test_hsl_luminance_darkens() {
-        // Pure red pixel
         let input = vec![255, 0, 0, 255];
         let mut params = EditParams::default();
-        // Darken the red channel
         params.hsl_luminance = [-50.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         assert!(output[0] < input[0], "Luminance reduction should darken red: {} vs {}", output[0], input[0]);
     }
 
     #[test]
     fn test_hsl_does_not_affect_unrelated_channel() {
-        // Pure blue pixel
         let input = vec![0, 0, 255, 255];
         let mut params = EditParams::default();
-        // Only adjust red channel — should not affect blue
         params.hsl_saturation = [-100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-        let output = apply_edits_cpu(&input, &params);
+        let output = cpu_edit(&input, &params);
         assert_eq!(output[0], 0, "Blue pixel R should stay 0, got {}", output[0]);
         assert_eq!(output[1], 0, "Blue pixel G should stay 0, got {}", output[1]);
         assert_eq!(output[2], 255, "Blue pixel B should stay 255, got {}", output[2]);
+    }
+
+    // --- Spatial tests ---
+
+    #[test]
+    fn test_sharpening_changes_pixels() {
+        let mut input = make_gray_image(100, 9);
+        input[4 * 4] = 200; input[4 * 4 + 1] = 200; input[4 * 4 + 2] = 200;
+        let mut params = EditParams::default();
+        params.sharpening_amount = 100.0;
+        params.sharpening_radius = 1.0;
+        let output = apply_edits_cpu(&input, 3, 3, &params);
+        assert!(output[4 * 4] > input[4 * 4], "Sharpening should boost bright center: {} vs {}", output[4 * 4], input[4 * 4]);
+    }
+
+    #[test]
+    fn test_clarity_changes_pixels() {
+        let mut input = Vec::with_capacity(20 * 4);
+        for i in 0..20 {
+            let v = if i < 10 { 80u8 } else { 180 };
+            input.extend_from_slice(&[v, v, v, 255]);
+        }
+        let mut params = EditParams::default();
+        params.clarity = 50.0;
+        let output = apply_edits_cpu(&input, 20, 1, &params);
+        assert!(output[0] < input[0] || output[19 * 4] > input[19 * 4],
+            "Clarity should enhance local contrast");
+    }
+
+    #[test]
+    fn test_vignette_darkens_corners() {
+        let input = make_gray_image(200, 100);
+        let mut params = EditParams::default();
+        params.vignette_amount = 100.0;
+        let output = apply_edits_cpu(&input, 10, 10, &params);
+        let center_idx = (5 * 10 + 5) * 4;
+        let corner_idx = 0;
+        assert!(output[corner_idx] < output[center_idx],
+            "Vignette: corner ({}) should be darker than center ({})", output[corner_idx], output[center_idx]);
+    }
+
+    #[test]
+    fn test_grain_adds_variation() {
+        let input = make_gray_image(128, 16);
+        let mut params = EditParams::default();
+        params.grain_amount = 50.0;
+        params.grain_size = 25.0;
+        let output = apply_edits_cpu(&input, 4, 4, &params);
+        let mut has_variation = false;
+        for i in 0..16 {
+            if output[i * 4] != 128 {
+                has_variation = true;
+                break;
+            }
+        }
+        assert!(has_variation, "Grain should add variation to uniform image");
+    }
+
+    #[test]
+    fn test_denoise_smooths_noise() {
+        let mut input = Vec::with_capacity(25 * 4);
+        for i in 0..25 {
+            let v = if i % 2 == 0 { 140u8 } else { 120 };
+            input.extend_from_slice(&[v, v, v, 255]);
+        }
+        let mut params = EditParams::default();
+        params.denoise_luminance = 50.0;
+        let output = apply_edits_cpu(&input, 5, 5, &params);
+        let center = output[12 * 4];
+        assert!(center > 120 && center < 140,
+            "Denoise should smooth noise toward average, got {}", center);
     }
 
     #[test]

@@ -31,6 +31,13 @@ export interface EditParams {
   hsl_hue: number[];
   hsl_saturation: number[];
   hsl_luminance: number[];
+  // Lens Correction
+  enable_lens_correction: boolean;
+  lens_profile_id: string | null;
+  lens_distortion: number;
+  lens_ca_correction: boolean;
+  lens_vignette_correction: boolean;
+  lens_distortion_amount: number;
 }
 
 export const DEFAULT_EDIT_PARAMS: EditParams = {
@@ -61,6 +68,12 @@ export const DEFAULT_EDIT_PARAMS: EditParams = {
   hsl_hue: [0, 0, 0, 0, 0, 0, 0, 0],
   hsl_saturation: [0, 0, 0, 0, 0, 0, 0, 0],
   hsl_luminance: [0, 0, 0, 0, 0, 0, 0, 0],
+  enable_lens_correction: false,
+  lens_profile_id: null,
+  lens_distortion: 0,
+  lens_ca_correction: true,
+  lens_vignette_correction: true,
+  lens_distortion_amount: 100,
 };
 
 export const HSL_CHANNELS = [
