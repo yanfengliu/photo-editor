@@ -1,6 +1,7 @@
 struct Params {
-    temperature: f32,
-    tint: f32,
+    wb_red_scale: f32,
+    wb_green_scale: f32,
+    wb_blue_scale: f32,
     exposure: f32,
     contrast: f32,
     highlights: f32,
@@ -9,8 +10,6 @@ struct Params {
     blacks: f32,
     saturation: f32,
     vibrance: f32,
-    dehaze: f32,
-    _pad0: f32,
 }
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -24,19 +23,24 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let coord = vec2<i32>(i32(gid.x), i32(gid.y));
     var pixel = textureLoad(input_tex, coord, 0);
 
-    // White balance (temperature + tint)
-    let temp_shift = (params.temperature - 6500.0) / 6500.0;
-    pixel.r *= 1.0 + temp_shift * 0.1;
-    pixel.b *= 1.0 - temp_shift * 0.1;
-    pixel.g *= 1.0 + params.tint / 150.0 * 0.05;
+    // White balance (pre-computed Planckian chromaticity multipliers)
+    pixel.r *= params.wb_red_scale;
+    pixel.g *= params.wb_green_scale;
+    pixel.b *= params.wb_blue_scale;
 
     // Exposure (EV stops)
     let exp_mult = pow(2.0, params.exposure);
     pixel = vec4<f32>(pixel.rgb * exp_mult, pixel.a);
 
-    // Contrast (pivot at 0.5)
-    let cf = 1.0 + params.contrast / 100.0;
-    pixel = vec4<f32>((pixel.rgb - 0.5) * cf + 0.5, pixel.a);
+    // Contrast — symmetric S-curve (power curve pivot at 0.5)
+    // Exponent > 1 steepens midtones (more contrast), < 1 flattens (less contrast)
+    // Formula: for each channel c, result = 0.5 + sign(c-0.5) * 0.5 * (1 - pow(1 - 2*|c-0.5|, exp))
+    // This maps [0,1]→[0,1] passing through (0,0), (0.5,0.5), (1,1)
+    let c_exp = max(1.0 + params.contrast / 100.0, 0.01);
+    let c_d = abs(pixel.rgb - vec3<f32>(0.5));
+    let c_t = 1.0 - 2.0 * c_d;
+    let c_curved = 1.0 - pow(max(c_t, vec3<f32>(0.0)), vec3<f32>(c_exp));
+    pixel = vec4<f32>(vec3<f32>(0.5) + sign(pixel.rgb - vec3<f32>(0.5)) * 0.5 * c_curved, pixel.a);
 
     // Luminance for tone region adjustments
     let lum = dot(pixel.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
@@ -76,13 +80,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let cur_sat = select(0.0, (max_c - min_c) / max_c, max_c > 0.0);
     let vib_f = 1.0 + params.vibrance / 100.0 * (1.0 - cur_sat);
     pixel = vec4<f32>(mix(vec3<f32>(gray_v), pixel.rgb, vib_f), pixel.a);
-
-    // Dehaze
-    if (abs(params.dehaze) > 0.01) {
-        let atmosphere = min(pixel.r, min(pixel.g, pixel.b));
-        let strength = params.dehaze / 100.0;
-        pixel = vec4<f32>(pixel.rgb + (pixel.rgb - atmosphere) * strength, pixel.a);
-    }
 
     // Clamp
     pixel = clamp(pixel, vec4<f32>(0.0), vec4<f32>(1.0));

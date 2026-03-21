@@ -14,7 +14,7 @@ export function DetailPanel() {
       <h4 className={styles.sub}>Noise Reduction</h4>
       <AdjustmentSlider label="Luminance" value={editParams.denoise_luminance} min={0} max={100} defaultValue={0} onChange={(v) => updateParam("denoise_luminance", v)} />
       <AdjustmentSlider label="Color" value={editParams.denoise_color} min={0} max={100} defaultValue={0} onChange={(v) => updateParam("denoise_color", v)} />
-      <div className={styles.toggle}><label className={styles.toggleLabel}><input type="checkbox" checked={editParams.denoise_ai} onChange={(e) => updateParam("denoise_ai", e.target.checked)} /><span>AI Denoise</span></label></div>
+      <div className={styles.toggle}><label className={styles.toggleLabel}><input type="checkbox" checked={editParams.denoise_ai} onChange={(e) => updateParam("denoise_ai", e.target.checked)} disabled /><span>AI Denoise (coming soon)</span></label></div>
     </CollapsibleSection>
   );
 }

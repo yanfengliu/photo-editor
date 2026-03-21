@@ -8,8 +8,8 @@ use crate::gpu::cpu_edits::{apply_edits_to_pixel, apply_hsl_to_pixel, CpuEditPro
 use crate::gpu::curves::CurveLuts;
 use crate::gpu::passes::basic_adjustments::BasicAdjustmentsParams;
 use crate::gpu::spatial::{
-    apply_clarity_cpu, apply_denoise_cpu, apply_grain_cpu, apply_sharpening_cpu,
-    apply_vignette_cpu,
+    apply_clarity_cpu, apply_dehaze_cpu, apply_denoise_cpu, apply_grain_cpu,
+    apply_sharpening_cpu, apply_vignette_cpu,
 };
 use crate::imaging::lens_profiles;
 
@@ -25,6 +25,7 @@ pub const PARALLEL_PIXEL_THRESHOLD: usize = 512 * 512;
 /// Checks if crop/rotation params differ from defaults
 fn needs_crop_rotation(params: &EditParams) -> bool {
     params.rotation != 0
+        || params.rotation_fine.abs() > 0.001
         || params.crop_x != 0.0
         || params.crop_y != 0.0
         || params.crop_width < 0.999
@@ -92,6 +93,76 @@ fn crop_region(
     (out, cw, ch)
 }
 
+/// Rotate an image by an arbitrary angle (degrees) using bilinear interpolation,
+/// then crop to the largest inscribed axis-aligned rectangle (same aspect ratio).
+fn rotate_fine(data: &[u8], width: u32, height: u32, angle_deg: f32) -> (Vec<u8>, u32, u32) {
+    let w = width as f64;
+    let h = height as f64;
+    let angle_rad = (angle_deg as f64) * std::f64::consts::PI / 180.0;
+    let cos_a = angle_rad.cos();
+    let sin_a = angle_rad.sin();
+    let abs_sin = sin_a.abs();
+    let abs_cos = cos_a.abs();
+
+    // Inscribed rectangle scale (same formula as ImageCanvas.tsx)
+    let inscribed_scale = (w / (w * abs_cos + h * abs_sin))
+        .min(h / (w * abs_sin + h * abs_cos));
+
+    let out_w = ((w * inscribed_scale).round() as u32).max(1);
+    let out_h = ((h * inscribed_scale).round() as u32).max(1);
+
+    // Center of source and output
+    let cx_src = (w - 1.0) / 2.0;
+    let cy_src = (h - 1.0) / 2.0;
+    let cx_out = (out_w as f64 - 1.0) / 2.0;
+    let cy_out = (out_h as f64 - 1.0) / 2.0;
+
+    let stride = width as usize * 4;
+    let mut out = vec![0u8; (out_w * out_h * 4) as usize];
+
+    for oy in 0..out_h {
+        for ox in 0..out_w {
+            // Map output pixel to source via inverse rotation
+            let dx = ox as f64 - cx_out;
+            let dy = oy as f64 - cy_out;
+            let sx = cos_a * dx + sin_a * dy + cx_src;
+            let sy = -sin_a * dx + cos_a * dy + cy_src;
+
+            // Bilinear interpolation
+            let x0 = sx.floor() as i64;
+            let y0 = sy.floor() as i64;
+            let fx = (sx - x0 as f64) as f32;
+            let fy = (sy - y0 as f64) as f32;
+
+            let sample = |px: i64, py: i64| -> [f32; 4] {
+                let cx = px.clamp(0, width as i64 - 1) as usize;
+                let cy = py.clamp(0, height as i64 - 1) as usize;
+                let i = cy * stride + cx * 4;
+                [
+                    data[i] as f32,
+                    data[i + 1] as f32,
+                    data[i + 2] as f32,
+                    data[i + 3] as f32,
+                ]
+            };
+
+            let tl = sample(x0, y0);
+            let tr = sample(x0 + 1, y0);
+            let bl = sample(x0, y0 + 1);
+            let br = sample(x0 + 1, y0 + 1);
+
+            let oi = (oy * out_w + ox) as usize * 4;
+            for c in 0..4 {
+                let top = tl[c] * (1.0 - fx) + tr[c] * fx;
+                let bot = bl[c] * (1.0 - fx) + br[c] * fx;
+                out[oi + c] = (top * (1.0 - fy) + bot * fy).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+
+    (out, out_w, out_h)
+}
+
 /// Apply crop and 90° rotation to processed image. Returns (data, width, height).
 pub fn apply_crop_rotation(
     data: Vec<u8>,
@@ -114,11 +185,18 @@ pub fn apply_crop_rotation(
         (data, width, height)
     };
 
-    // Then rotate
-    if params.rotation != 0 {
+    // 90° rotation
+    let (rotated, rw, rh) = if params.rotation != 0 {
         rotate_90_steps(&cropped, cw, ch, params.rotation)
     } else {
         (cropped, cw, ch)
+    };
+
+    // Fine rotation with inscribed crop
+    if params.rotation_fine.abs() > 0.001 {
+        rotate_fine(&rotated, rw, rh, params.rotation_fine)
+    } else {
+        (rotated, rw, rh)
     }
 }
 
@@ -217,14 +295,15 @@ pub fn apply_edits_cpu_with_lens(rgba_data: &[u8], width: u32, height: u32, para
     }
 
     // --- Spatial passes (need full buffer + dimensions) ---
+    if params.dehaze.abs() > 0.01 {
+        apply_dehaze_cpu(&mut result, width, height, params.dehaze);
+    }
     if params.sharpening_amount > 0.01 {
         apply_sharpening_cpu(&mut result, width, height, params.sharpening_amount, params.sharpening_radius);
     }
-
     if params.clarity.abs() > 0.01 {
         apply_clarity_cpu(&mut result, width, height, params.clarity);
     }
-
     if params.denoise_luminance > 0.01 || params.denoise_color > 0.01 {
         apply_denoise_cpu(&mut result, width, height, params.denoise_luminance, params.denoise_color);
     }
@@ -245,7 +324,8 @@ pub fn apply_edits_cpu_with_lens(rgba_data: &[u8], width: u32, height: u32, para
 fn needs_cpu_post_processing(params: &EditParams) -> bool {
     let defaults = EditParams::default();
 
-    params.clarity.abs() > 0.001
+    params.dehaze.abs() > 0.01
+        || params.clarity.abs() > 0.001
         || params.sharpening_amount > 0.001
         || params.denoise_luminance > 0.001
         || params.denoise_color > 0.001
@@ -283,6 +363,9 @@ fn apply_cpu_post_processing(mut data: Vec<u8>, width: u32, height: u32, params:
     }
 
     // Spatial passes
+    if params.dehaze.abs() > 0.01 {
+        apply_dehaze_cpu(&mut data, width, height, params.dehaze);
+    }
     if params.sharpening_amount > 0.01 {
         apply_sharpening_cpu(&mut data, width, height, params.sharpening_amount, params.sharpening_radius);
     }
@@ -368,6 +451,9 @@ pub fn apply_edits_with_backend_lens(
         }
     }
 
+    if params.dehaze.abs() > 0.01 {
+        apply_dehaze_cpu(&mut result, width, height, params.dehaze);
+    }
     if params.sharpening_amount > 0.01 {
         apply_sharpening_cpu(&mut result, width, height, params.sharpening_amount, params.sharpening_radius);
     }
@@ -1065,9 +1151,46 @@ mod tests {
         params.crop_width = 0.5;
         params.crop_height = 1.0;
         params.rotation = 90;
-        let (out, w, h) = apply_crop_rotation(input, 2, 2, &params);
+        let (_out, w, h) = apply_crop_rotation(input, 2, 2, &params);
         // Crop to left column (1x2), then rotate 90° → 2x1
         assert_eq!(w, 2);
         assert_eq!(h, 1);
+    }
+
+    #[test]
+    fn test_rotate_fine_zero_is_noop() {
+        let input = vec![255u8; 4 * 4 * 4]; // 4x4 white
+        let (out, w, h) = rotate_fine(&input, 4, 4, 0.0);
+        assert_eq!(w, 4);
+        assert_eq!(h, 4);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_rotate_fine_produces_smaller_image() {
+        // 100x100 image rotated by 10° should produce inscribed rect smaller than 100x100
+        let input = vec![128u8; 100 * 100 * 4];
+        let (_, w, h) = rotate_fine(&input, 100, 100, 10.0);
+        assert!(w < 100 && w > 50, "width {w} should be between 50 and 100");
+        assert!(h < 100 && h > 50, "height {h} should be between 50 and 100");
+        assert_eq!(w, h); // square input → square output
+    }
+
+    #[test]
+    fn test_rotate_fine_45_deg_square() {
+        // At 45° a square inscribed rectangle has side = W / (cos45 + sin45) = W / sqrt(2)
+        let input = vec![0u8; 100 * 100 * 4];
+        let (_, w, h) = rotate_fine(&input, 100, 100, 45.0);
+        let expected = (100.0 / 2.0_f64.sqrt()).round() as u32;
+        assert!((w as i32 - expected as i32).unsigned_abs() <= 1, "w={w} expected ~{expected}");
+        assert!((h as i32 - expected as i32).unsigned_abs() <= 1, "h={h} expected ~{expected}");
+    }
+
+    #[test]
+    fn test_needs_crop_rotation_with_fine() {
+        let mut params = EditParams::default();
+        assert!(!needs_crop_rotation(&params));
+        params.rotation_fine = 5.0;
+        assert!(needs_crop_rotation(&params));
     }
 }

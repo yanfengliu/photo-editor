@@ -4,8 +4,9 @@ use wgpu::util::DeviceExt;
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct BasicAdjustmentsParams {
-    pub temperature: f32,
-    pub tint: f32,
+    pub wb_red_scale: f32,
+    pub wb_green_scale: f32,
+    pub wb_blue_scale: f32,
     pub exposure: f32,
     pub contrast: f32,
     pub highlights: f32,
@@ -14,15 +15,16 @@ pub struct BasicAdjustmentsParams {
     pub blacks: f32,
     pub saturation: f32,
     pub vibrance: f32,
-    pub dehaze: f32,
-    pub _pad0: f32,
 }
 
 impl From<&crate::catalog::models::EditParams> for BasicAdjustmentsParams {
     fn from(params: &crate::catalog::models::EditParams) -> Self {
+        let (r_scale, b_scale) = crate::gpu::cpu_edits::planckian_wb_scales(params.temperature);
+        let g_scale = 1.0 + params.tint / 150.0 * 0.05;
         Self {
-            temperature: params.temperature,
-            tint: params.tint,
+            wb_red_scale: r_scale,
+            wb_green_scale: g_scale,
+            wb_blue_scale: b_scale,
             exposure: params.exposure,
             contrast: params.contrast,
             highlights: params.highlights,
@@ -31,8 +33,6 @@ impl From<&crate::catalog::models::EditParams> for BasicAdjustmentsParams {
             blacks: params.blacks,
             saturation: params.saturation,
             vibrance: params.vibrance,
-            dehaze: params.dehaze,
-            _pad0: 0.0,
         }
     }
 }
