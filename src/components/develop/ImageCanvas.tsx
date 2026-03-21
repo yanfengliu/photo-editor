@@ -45,6 +45,7 @@ export function ImageCanvas() {
   } = useDevelopStore();
   const currentImageId = useDevelopStore((s) => s.currentImageId);
   const cropAspectRatio = useUiStore((s) => s.cropAspectRatio);
+  const cropToolActive = useUiStore((s) => s.cropToolActive);
   const [previewSize, setPreviewSize] = useState(DEFAULT_PREVIEW_SIZE);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
 
@@ -414,7 +415,7 @@ export function ImageCanvas() {
   const fineAngle = editParams.rotation_fine || 0;
 
   // --- Crop overlay geometry ---
-  const showCrop = previewData !== null;
+  const showCrop = cropToolActive && previewData !== null;
 
   // Crop box in container pixel coordinates
   const cropLeft = offset.x + editParams.crop_x * imageW * displayScale;

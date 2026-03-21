@@ -20,7 +20,7 @@ type AspectValue = null | "original" | number;
 export function CropRotationPanel() {
   const { editParams, updateParam, previewWidth, previewHeight } =
     useDevelopStore();
-  const { cropAspectRatio, setCropAspectRatio } = useUiStore();
+  const { cropAspectRatio, setCropAspectRatio, setCropToolActive } = useUiStore();
 
   const handleRotate = (degrees: number) => {
     const current = editParams.rotation;
@@ -90,7 +90,7 @@ export function CropRotationPanel() {
   const activeRatio = cropAspectRatio;
 
   return (
-    <CollapsibleSection title="Crop & Rotate" defaultOpen={false} onToggle={(open) => { if (!open) setCropAspectRatio(null); }}>
+    <CollapsibleSection title="Crop & Rotate" defaultOpen={false} onToggle={(open) => { setCropToolActive(open); if (!open) setCropAspectRatio(null); }}>
       <div className={styles.section}>
         <h4 className={styles.sub}>Rotation</h4>
         <div className={styles.rotateButtons}>
