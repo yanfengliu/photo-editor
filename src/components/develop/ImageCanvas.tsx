@@ -335,12 +335,7 @@ export function ImageCanvas() {
   const fineAngle = editParams.rotation_fine || 0;
 
   // --- Crop overlay geometry ---
-  const isCropped =
-    editParams.crop_x !== 0 ||
-    editParams.crop_y !== 0 ||
-    editParams.crop_width !== 1 ||
-    editParams.crop_height !== 1;
-  const showCrop = isCropped || cropDrag !== null;
+  const showCrop = previewData !== null;
 
   // Crop box in container pixel coordinates
   const cropLeft = offset.x + editParams.crop_x * imageW * displayScale;

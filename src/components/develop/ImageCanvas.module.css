@@ -5,7 +5,7 @@
 
 /* Crop overlay — darkened region outside crop box */
 .cropOverlay { position: absolute; pointer-events: none; z-index: 1; }
-.cropDarken { position: absolute; background: rgba(0,0,0,0.55); }
+.cropDarken { position: absolute; background: rgba(0,0,0,0.55); pointer-events: none; }
 .cropBorder { position: absolute; border: 1.5px solid rgba(255,255,255,0.85); pointer-events: none; z-index: 2; }
 
 /* Rule of thirds grid */
@@ -15,7 +15,7 @@
 .cropGridV { top: 0; bottom: 0; width: 1px; }
 
 /* Hit areas for dragging edges/corners */
-.cropHandle { position: absolute; z-index: 3; }
+.cropHandle { position: absolute; z-index: 3; pointer-events: auto; }
 .cropHandleN { left: 12px; right: 12px; top: -5px; height: 10px; cursor: ns-resize; }
 .cropHandleS { left: 12px; right: 12px; bottom: -5px; height: 10px; cursor: ns-resize; }
 .cropHandleW { top: 12px; bottom: 12px; left: -5px; width: 10px; cursor: ew-resize; }

@@ -24,7 +24,13 @@ fn process_image(state: &AppState, image_id: &str) -> Result<(Vec<u8>, u32, u32)
         image.height,
         &edit_params,
     );
-    Ok((processed, image.width, image.height))
+    let (result, out_w, out_h) = crate::gpu::pipeline::apply_crop_rotation(
+        processed,
+        image.width,
+        image.height,
+        &edit_params,
+    );
+    Ok((result, out_w, out_h))
 }
 
 #[tauri::command]

@@ -63,12 +63,17 @@ pub async fn apply_edits(
         lens_meta.as_ref(),
     );
 
-    // Apply crop and 90° rotation after all color/spatial edits
+    // Apply only rotation during preview — crop is a visual overlay, applied on export
+    let mut preview_params = params.clone();
+    preview_params.crop_x = 0.0;
+    preview_params.crop_y = 0.0;
+    preview_params.crop_width = 1.0;
+    preview_params.crop_height = 1.0;
     let (result, out_w, out_h) = crate::gpu::pipeline::apply_crop_rotation(
         edited,
         preview.width,
         preview.height,
-        &params,
+        &preview_params,
     );
 
     // Pack as binary: 8-byte header (width + height as u32 LE) + raw RGBA bytes
