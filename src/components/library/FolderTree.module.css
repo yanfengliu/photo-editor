@@ -5,3 +5,8 @@
 .item:hover { background: var(--bg-hover); }
 .count { font-size: var(--font-size-xs); color: var(--text-muted); }
 .empty { padding: 8px; font-size: var(--font-size-xs); color: var(--text-muted); font-style: italic; }
+.sectionHeader { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; margin-bottom: 4px; }
+.addBtn { background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; padding: 2px 4px; border-radius: var(--radius-sm); line-height: 1; }
+.addBtn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.newCollInput { width: 100%; padding: 4px 8px; margin: 4px 0; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: var(--font-size-sm); }
+.newCollInput::placeholder { color: var(--text-muted); }

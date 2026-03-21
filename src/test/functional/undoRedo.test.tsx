@@ -14,6 +14,9 @@ const mockDefaults = vi.hoisted(() => ({
   curve_rgb: [{ x: 0, y: 0 }, { x: 1, y: 1 }], curve_r: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
   curve_g: [{ x: 0, y: 0 }, { x: 1, y: 1 }], curve_b: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
   hsl_hue: [0, 0, 0, 0, 0, 0, 0, 0], hsl_saturation: [0, 0, 0, 0, 0, 0, 0, 0], hsl_luminance: [0, 0, 0, 0, 0, 0, 0, 0],
+  crop_x: 0, crop_y: 0, crop_width: 1, crop_height: 1, rotation: 0, rotation_fine: 0,
+  enable_lens_correction: false, lens_profile_id: null, lens_distortion: 0,
+  lens_ca_correction: true, lens_vignette_correction: true, lens_distortion_amount: 100,
 }));
 
 vi.mock("../../api/processing", () => ({

@@ -5,16 +5,17 @@ import { LibraryView } from "../library/LibraryView";
 import { DevelopView } from "../develop/DevelopView";
 import { ImportDialog } from "../library/ImportDialog";
 import { ExportDialog } from "../export/ExportDialog";
+import { DeleteConfirmDialog } from "../common/DeleteConfirmDialog";
 import { useUiStore } from "../../stores/uiStore";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import styles from "./AppShell.module.css";
 
 export function AppShell() {
   useKeyboardShortcuts();
-  const { viewMode, filmStripOpen, showImportDialog, showExportDialog } = useUiStore();
+  const { viewMode, filmStripOpen, showImportDialog, showExportDialog, showDeleteConfirm } = useUiStore();
 
   return (
-    <div className={styles.shell}>
+    <div className={styles.shell} onContextMenu={(e) => e.preventDefault()}>
       <TopToolbar />
       <div className={styles.main}>
         {viewMode === "library" ? <LibraryView /> : <DevelopView />}
@@ -23,6 +24,7 @@ export function AppShell() {
       <StatusBar />
       {showImportDialog && <ImportDialog />}
       {showExportDialog && <ExportDialog />}
+      {showDeleteConfirm && <DeleteConfirmDialog />}
     </div>
   );
 }

@@ -4,13 +4,13 @@ import { Rating } from "../common/Rating";
 import { FlagToggle } from "../common/FlagToggle";
 import styles from "./ThumbnailCard.module.css";
 
-interface Props { image: ImageRecord; isSelected: boolean; onClick: () => void; onDoubleClick: () => void; }
+interface Props { image: ImageRecord; isSelected: boolean; onClick: () => void; onDoubleClick: () => void; onContextMenu?: (e: React.MouseEvent) => void; }
 
-export function ThumbnailCard({ image, isSelected, onClick, onDoubleClick }: Props) {
+export function ThumbnailCard({ image, isSelected, onClick, onDoubleClick, onContextMenu }: Props) {
   const thumbnailUrl = useThumbnail(image.id);
 
   return (
-    <div className={`${styles.card} ${isSelected ? styles.selected : ""}`} onClick={onClick} onDoubleClick={onDoubleClick}>
+    <div className={`${styles.card} ${isSelected ? styles.selected : ""}`} onClick={onClick} onDoubleClick={onDoubleClick} onContextMenu={onContextMenu}>
       <div className={styles.preview}>
         {thumbnailUrl ? (
           <img className={styles.thumbnail} src={thumbnailUrl} alt={image.file_name} />

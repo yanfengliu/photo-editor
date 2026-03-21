@@ -13,6 +13,7 @@ interface UiState {
   importProgress: { total: number; processed: number } | null;
   showImportDialog: boolean;
   showExportDialog: boolean;
+  showDeleteConfirm: boolean;
   showBeforeAfter: boolean;
   zoomLevel: number;
   statusMessage: string;
@@ -28,6 +29,7 @@ interface UiState {
   setImportProgress: (progress: { total: number; processed: number } | null) => void;
   setShowImportDialog: (show: boolean) => void;
   setShowExportDialog: (show: boolean) => void;
+  setShowDeleteConfirm: (show: boolean) => void;
   toggleBeforeAfter: () => void;
   setZoomLevel: (level: number) => void;
   setStatusMessage: (message: string) => void;
@@ -44,6 +46,7 @@ export const useUiStore = create<UiState>((set) => ({
   importProgress: null,
   showImportDialog: false,
   showExportDialog: false,
+  showDeleteConfirm: false,
   showBeforeAfter: false,
   zoomLevel: 1,
   statusMessage: "Ready",
@@ -67,6 +70,7 @@ export const useUiStore = create<UiState>((set) => ({
   setImportProgress: (progress) => set({ importProgress: progress }),
   setShowImportDialog: (show) => set({ showImportDialog: show }),
   setShowExportDialog: (show) => set({ showExportDialog: show }),
+  setShowDeleteConfirm: (show) => set({ showDeleteConfirm: show }),
   toggleBeforeAfter: () => set((s) => ({ showBeforeAfter: !s.showBeforeAfter })),
   setZoomLevel: (level) => set({ zoomLevel: level }),
   setStatusMessage: (message) => set({ statusMessage: message }),

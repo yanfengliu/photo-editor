@@ -31,6 +31,13 @@ export interface EditParams {
   hsl_hue: number[];
   hsl_saturation: number[];
   hsl_luminance: number[];
+  // Crop & Rotation
+  crop_x: number;
+  crop_y: number;
+  crop_width: number;
+  crop_height: number;
+  rotation: number;       // 0, 90, 180, 270
+  rotation_fine: number;  // -45..+45
   // Lens Correction
   enable_lens_correction: boolean;
   lens_profile_id: string | null;
@@ -68,6 +75,12 @@ export const DEFAULT_EDIT_PARAMS: EditParams = {
   hsl_hue: [0, 0, 0, 0, 0, 0, 0, 0],
   hsl_saturation: [0, 0, 0, 0, 0, 0, 0, 0],
   hsl_luminance: [0, 0, 0, 0, 0, 0, 0, 0],
+  crop_x: 0,
+  crop_y: 0,
+  crop_width: 1,
+  crop_height: 1,
+  rotation: 0,
+  rotation_fine: 0,
   enable_lens_correction: false,
   lens_profile_id: null,
   lens_distortion: 0,

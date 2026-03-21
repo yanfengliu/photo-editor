@@ -1,0 +1,12 @@
+.menu { position: fixed; z-index: 2000; min-width: 180px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(0,0,0,0.5); padding: 4px 0; }
+.item { display: block; width: 100%; padding: 6px 12px; background: none; border: none; color: var(--text-primary); font-size: var(--font-size-sm); text-align: left; cursor: pointer; white-space: nowrap; }
+.item:hover { background: var(--bg-hover); }
+.danger { color: #e53935; }
+.danger:hover { background: rgba(229, 57, 53, 0.15); }
+.divider { height: 1px; background: var(--border); margin: 4px 0; }
+.submenu { position: relative; }
+.submenuLabel { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; color: var(--text-primary); font-size: var(--font-size-sm); cursor: default; }
+.submenuLabel:hover { background: var(--bg-hover); }
+.arrow { font-size: 8px; margin-left: 8px; color: var(--text-muted); }
+.submenuContent { display: none; position: absolute; left: 100%; top: 0; min-width: 160px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(0,0,0,0.5); padding: 4px 0; }
+.submenu:hover .submenuContent { display: block; }

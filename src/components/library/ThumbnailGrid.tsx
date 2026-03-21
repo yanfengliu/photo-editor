@@ -1,13 +1,19 @@
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { VirtuosoGrid } from "react-virtuoso";
 import { useCatalogStore } from "../../stores/catalogStore";
 import { useUiStore } from "../../stores/uiStore";
 import { ThumbnailCard } from "./ThumbnailCard";
+import { ImageContextMenu } from "./ImageContextMenu";
+import type { MenuPosition } from "../common/ContextMenu";
 import styles from "./ThumbnailGrid.module.css";
 
 export function ThumbnailGrid() {
   const { images, loading } = useCatalogStore();
   const { selectedImageId, selectImage, setViewMode } = useUiStore();
+  const [contextMenu, setContextMenu] = useState<{
+    position: MenuPosition;
+    imageId: string;
+  } | null>(null);
 
   const handleDoubleClick = useCallback(
     (id: string) => {
@@ -15,6 +21,14 @@ export function ThumbnailGrid() {
       setViewMode("develop");
     },
     [selectImage, setViewMode]
+  );
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, imageId: string) => {
+      e.preventDefault();
+      setContextMenu({ position: { x: e.clientX, y: e.clientY }, imageId });
+    },
+    []
   );
 
   const gridComponents = useMemo(
@@ -48,23 +62,33 @@ export function ThumbnailGrid() {
     );
 
   return (
-    <VirtuosoGrid
-      totalCount={images.length}
-      overscan={200}
-      components={gridComponents}
-      itemContent={(index) => {
-        const image = images[index];
-        return (
-          <ThumbnailCard
-            key={image.id}
-            image={image}
-            isSelected={selectedImageId === image.id}
-            onClick={() => selectImage(image.id)}
-            onDoubleClick={() => handleDoubleClick(image.id)}
-          />
-        );
-      }}
-      style={{ flex: 1 }}
-    />
+    <>
+      <VirtuosoGrid
+        totalCount={images.length}
+        overscan={200}
+        components={gridComponents}
+        itemContent={(index) => {
+          const image = images[index];
+          return (
+            <ThumbnailCard
+              key={image.id}
+              image={image}
+              isSelected={selectedImageId === image.id}
+              onClick={() => selectImage(image.id)}
+              onDoubleClick={() => handleDoubleClick(image.id)}
+              onContextMenu={(e) => handleContextMenu(e, image.id)}
+            />
+          );
+        }}
+        style={{ flex: 1 }}
+      />
+      {contextMenu && (
+        <ImageContextMenu
+          position={contextMenu.position}
+          imageId={contextMenu.imageId}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+    </>
   );
 }

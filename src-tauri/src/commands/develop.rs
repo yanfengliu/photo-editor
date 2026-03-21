@@ -54,7 +54,7 @@ pub async fn apply_edits(
 
     let lens_meta = state.get_lens_metadata(&image_id).ok();
     let mut gpu = state.gpu.lock().map_err(|e| e.to_string())?;
-    let result = crate::gpu::pipeline::apply_edits_with_backend_lens(
+    let edited = crate::gpu::pipeline::apply_edits_with_backend_lens(
         gpu.as_mut(),
         preview.data.as_ref(),
         preview.width,
@@ -63,10 +63,18 @@ pub async fn apply_edits(
         lens_meta.as_ref(),
     );
 
+    // Apply crop and 90° rotation after all color/spatial edits
+    let (result, out_w, out_h) = crate::gpu::pipeline::apply_crop_rotation(
+        edited,
+        preview.width,
+        preview.height,
+        &params,
+    );
+
     // Pack as binary: 8-byte header (width + height as u32 LE) + raw RGBA bytes
     let mut buf = Vec::with_capacity(8 + result.len());
-    buf.extend_from_slice(&preview.width.to_le_bytes());
-    buf.extend_from_slice(&preview.height.to_le_bytes());
+    buf.extend_from_slice(&out_w.to_le_bytes());
+    buf.extend_from_slice(&out_h.to_le_bytes());
     buf.extend_from_slice(&result);
     Ok(Response::new(buf))
 }

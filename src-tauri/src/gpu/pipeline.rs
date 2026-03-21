@@ -22,6 +22,106 @@ pub struct LensMetadata {
 
 pub const PARALLEL_PIXEL_THRESHOLD: usize = 512 * 512;
 
+/// Checks if crop/rotation params differ from defaults
+fn needs_crop_rotation(params: &EditParams) -> bool {
+    params.rotation != 0
+        || params.crop_x != 0.0
+        || params.crop_y != 0.0
+        || params.crop_width < 0.999
+        || params.crop_height < 0.999
+}
+
+/// Apply 90-degree rotation to RGBA buffer. Returns (new_data, new_width, new_height).
+fn rotate_90_steps(data: &[u8], width: u32, height: u32, rotation: i32) -> (Vec<u8>, u32, u32) {
+    let steps = ((rotation % 360 + 360) % 360) / 90;
+    if steps == 0 {
+        return (data.to_vec(), width, height);
+    }
+
+    let (w, h) = (width as usize, height as usize);
+    let mut src = data.to_vec();
+    let mut sw = w;
+    let mut sh = h;
+
+    for _ in 0..steps {
+        let dw = sh;
+        let dh = sw;
+        let mut dst = vec![0u8; dw * dh * 4];
+        for y in 0..sh {
+            for x in 0..sw {
+                // 90° CW: (x, y) -> (h - 1 - y, x)
+                let src_idx = (y * sw + x) * 4;
+                let dst_x = sh - 1 - y;
+                let dst_y = x;
+                let dst_idx = (dst_y * dw + dst_x) * 4;
+                dst[dst_idx..dst_idx + 4].copy_from_slice(&src[src_idx..src_idx + 4]);
+            }
+        }
+        src = dst;
+        sw = dw;
+        sh = dh;
+    }
+
+    (src, sw as u32, sh as u32)
+}
+
+/// Crop an RGBA buffer to a sub-region defined by normalized [0,1] coordinates.
+/// Returns (new_data, new_width, new_height).
+fn crop_region(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    crop_x: f32,
+    crop_y: f32,
+    crop_w: f32,
+    crop_h: f32,
+) -> (Vec<u8>, u32, u32) {
+    let x0 = ((crop_x * width as f32).round() as u32).min(width);
+    let y0 = ((crop_y * height as f32).round() as u32).min(height);
+    let cw = ((crop_w * width as f32).round() as u32).min(width - x0).max(1);
+    let ch = ((crop_h * height as f32).round() as u32).min(height - y0).max(1);
+
+    let mut out = Vec::with_capacity((cw * ch * 4) as usize);
+    let stride = (width * 4) as usize;
+    for row in y0..y0 + ch {
+        let start = (row as usize) * stride + (x0 as usize) * 4;
+        let end = start + (cw as usize) * 4;
+        out.extend_from_slice(&data[start..end]);
+    }
+
+    (out, cw, ch)
+}
+
+/// Apply crop and 90° rotation to processed image. Returns (data, width, height).
+pub fn apply_crop_rotation(
+    data: Vec<u8>,
+    width: u32,
+    height: u32,
+    params: &EditParams,
+) -> (Vec<u8>, u32, u32) {
+    if !needs_crop_rotation(params) {
+        return (data, width, height);
+    }
+
+    // Crop first (operates on the original orientation)
+    let (cropped, cw, ch) = if params.crop_x != 0.0
+        || params.crop_y != 0.0
+        || params.crop_width < 0.999
+        || params.crop_height < 0.999
+    {
+        crop_region(&data, width, height, params.crop_x, params.crop_y, params.crop_width, params.crop_height)
+    } else {
+        (data, width, height)
+    };
+
+    // Then rotate
+    if params.rotation != 0 {
+        rotate_90_steps(&cropped, cw, ch, params.rotation)
+    } else {
+        (cropped, cw, ch)
+    }
+}
+
 /// Apply lens correction if enabled, returning corrected data or original
 fn apply_lens_correction_step(
     data: &[u8],
@@ -800,5 +900,174 @@ mod tests {
 
         assert_eq!(output.len(), input.len());
         assert_eq!(output[3], 255);
+    }
+
+    // --- Crop & Rotation tests ---
+
+    /// Make a 2x2 RGBA image with distinct pixel colors
+    fn make_2x2_image() -> Vec<u8> {
+        vec![
+            255, 0, 0, 255,    // (0,0) red
+            0, 255, 0, 255,    // (1,0) green
+            0, 0, 255, 255,    // (0,1) blue
+            255, 255, 0, 255,  // (1,1) yellow
+        ]
+    }
+
+    #[test]
+    fn test_rotate_0_no_change() {
+        let input = make_2x2_image();
+        let (out, w, h) = rotate_90_steps(&input, 2, 2, 0);
+        assert_eq!(w, 2);
+        assert_eq!(h, 2);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_rotate_90_cw() {
+        let input = make_2x2_image();
+        let (out, w, h) = rotate_90_steps(&input, 2, 2, 90);
+        assert_eq!(w, 2);
+        assert_eq!(h, 2);
+        // After 90° CW: (0,0)→(1,0), (1,0)→(1,1), (0,1)→(0,0), (1,1)→(0,1)
+        // New layout: blue, red, yellow, green
+        assert_eq!(&out[0..4], &[0, 0, 255, 255]);   // blue at (0,0)
+        assert_eq!(&out[4..8], &[255, 0, 0, 255]);   // red at (1,0)
+        assert_eq!(&out[8..12], &[255, 255, 0, 255]); // yellow at (0,1)
+        assert_eq!(&out[12..16], &[0, 255, 0, 255]);  // green at (1,1)
+    }
+
+    #[test]
+    fn test_rotate_180() {
+        let input = make_2x2_image();
+        let (out, w, h) = rotate_90_steps(&input, 2, 2, 180);
+        assert_eq!(w, 2);
+        assert_eq!(h, 2);
+        // 180°: reversed order
+        assert_eq!(&out[0..4], &[255, 255, 0, 255]);  // yellow
+        assert_eq!(&out[4..8], &[0, 0, 255, 255]);    // blue
+        assert_eq!(&out[8..12], &[0, 255, 0, 255]);   // green
+        assert_eq!(&out[12..16], &[255, 0, 0, 255]);  // red
+    }
+
+    #[test]
+    fn test_rotate_270() {
+        let input = make_2x2_image();
+        let (out, w, h) = rotate_90_steps(&input, 2, 2, 270);
+        assert_eq!(w, 2);
+        assert_eq!(h, 2);
+        // 270° CW = 90° CCW
+        assert_eq!(&out[0..4], &[0, 255, 0, 255]);    // green at (0,0)
+        assert_eq!(&out[4..8], &[255, 255, 0, 255]);  // yellow at (1,0)
+        assert_eq!(&out[8..12], &[255, 0, 0, 255]);   // red at (0,1)
+        assert_eq!(&out[12..16], &[0, 0, 255, 255]);  // blue at (1,1)
+    }
+
+    #[test]
+    fn test_rotate_360_is_identity() {
+        let input = make_2x2_image();
+        let (out, w, h) = rotate_90_steps(&input, 2, 2, 360);
+        assert_eq!(w, 2);
+        assert_eq!(h, 2);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_rotate_non_square() {
+        // 3x1 image
+        let input = vec![
+            255, 0, 0, 255,   // pixel 0
+            0, 255, 0, 255,   // pixel 1
+            0, 0, 255, 255,   // pixel 2
+        ];
+        let (out, w, h) = rotate_90_steps(&input, 3, 1, 90);
+        assert_eq!(w, 1);
+        assert_eq!(h, 3);
+        // 90° CW of 3x1 → 1x3: bottom-to-top becomes left-to-right
+        assert_eq!(&out[0..4], &[255, 0, 0, 255]);   // (0,0) was (0,0)
+        assert_eq!(&out[4..8], &[0, 255, 0, 255]);   // (0,1) was (1,0)
+        assert_eq!(&out[8..12], &[0, 0, 255, 255]);  // (0,2) was (2,0)
+    }
+
+    #[test]
+    fn test_crop_full_image() {
+        let input = make_2x2_image();
+        let (out, w, h) = crop_region(&input, 2, 2, 0.0, 0.0, 1.0, 1.0);
+        assert_eq!(w, 2);
+        assert_eq!(h, 2);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_crop_top_left_quarter() {
+        let input = make_2x2_image();
+        let (out, w, h) = crop_region(&input, 2, 2, 0.0, 0.0, 0.5, 0.5);
+        assert_eq!(w, 1);
+        assert_eq!(h, 1);
+        assert_eq!(&out[0..4], &[255, 0, 0, 255]); // red pixel
+    }
+
+    #[test]
+    fn test_crop_bottom_right_quarter() {
+        let input = make_2x2_image();
+        let (out, w, h) = crop_region(&input, 2, 2, 0.5, 0.5, 0.5, 0.5);
+        assert_eq!(w, 1);
+        assert_eq!(h, 1);
+        assert_eq!(&out[0..4], &[255, 255, 0, 255]); // yellow pixel
+    }
+
+    #[test]
+    fn test_crop_right_half() {
+        let input = make_2x2_image();
+        let (out, w, h) = crop_region(&input, 2, 2, 0.5, 0.0, 0.5, 1.0);
+        assert_eq!(w, 1);
+        assert_eq!(h, 2);
+        assert_eq!(&out[0..4], &[0, 255, 0, 255]);   // green
+        assert_eq!(&out[4..8], &[255, 255, 0, 255]);  // yellow
+    }
+
+    #[test]
+    fn test_needs_crop_rotation_default() {
+        let params = EditParams::default();
+        assert!(!needs_crop_rotation(&params));
+    }
+
+    #[test]
+    fn test_needs_crop_rotation_with_rotation() {
+        let mut params = EditParams::default();
+        params.rotation = 90;
+        assert!(needs_crop_rotation(&params));
+    }
+
+    #[test]
+    fn test_needs_crop_rotation_with_crop() {
+        let mut params = EditParams::default();
+        params.crop_width = 0.5;
+        assert!(needs_crop_rotation(&params));
+    }
+
+    #[test]
+    fn test_apply_crop_rotation_no_op() {
+        let input = make_2x2_image();
+        let params = EditParams::default();
+        let (out, w, h) = apply_crop_rotation(input.clone(), 2, 2, &params);
+        assert_eq!(w, 2);
+        assert_eq!(h, 2);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_apply_crop_then_rotate() {
+        let input = make_2x2_image();
+        let mut params = EditParams::default();
+        params.crop_x = 0.0;
+        params.crop_y = 0.0;
+        params.crop_width = 0.5;
+        params.crop_height = 1.0;
+        params.rotation = 90;
+        let (out, w, h) = apply_crop_rotation(input, 2, 2, &params);
+        // Crop to left column (1x2), then rotate 90° → 2x1
+        assert_eq!(w, 2);
+        assert_eq!(h, 1);
     }
 }

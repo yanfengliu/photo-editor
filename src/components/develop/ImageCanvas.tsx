@@ -248,7 +248,7 @@ export function ImageCanvas() {
         ref={canvasRef}
         className={styles.canvas}
         style={{
-          transform: `translate(${offset.x}px, ${offset.y}px) scale(${displayScale})`,
+          transform: `translate(${offset.x}px, ${offset.y}px) scale(${displayScale})${editParams.rotation_fine ? ` rotate(${editParams.rotation_fine}deg)` : ""}`,
           imageRendering: displayScale > 2 ? "pixelated" : undefined,
         }}
       />

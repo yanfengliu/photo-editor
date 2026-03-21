@@ -1,0 +1,6 @@
+.message { color: var(--text-secondary); font-size: var(--font-size-sm); margin: 12px 0 20px; line-height: 1.5; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; }
+.cancelBtn { padding: 8px 16px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: var(--font-size-sm); cursor: pointer; }
+.cancelBtn:hover { background: var(--bg-hover); }
+.deleteBtn { padding: 8px 16px; background: #e53935; border: none; border-radius: var(--radius-sm); color: white; font-size: var(--font-size-sm); cursor: pointer; font-weight: 500; }
+.deleteBtn:hover { background: #c62828; }

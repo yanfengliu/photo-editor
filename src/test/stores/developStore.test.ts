@@ -14,6 +14,10 @@ vi.mock("../../api/processing", () => {
     sharpening_amount: 0, sharpening_radius: 1.0, clarity: 0,
     denoise_luminance: 0, denoise_color: 0, denoise_ai: false,
     dehaze: 0, vignette_amount: 0, grain_amount: 0, grain_size: 25,
+    crop_x: 0, crop_y: 0, crop_width: 1, crop_height: 1,
+    rotation: 0, rotation_fine: 0,
+    enable_lens_correction: false, lens_profile_id: null, lens_distortion: 0,
+    lens_ca_correction: true, lens_vignette_correction: true, lens_distortion_amount: 100,
   };
   return {
     getEditParams: vi.fn().mockResolvedValue({ ...d }),

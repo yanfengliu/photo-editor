@@ -4,7 +4,7 @@ import { useCatalogStore } from "../stores/catalogStore";
 import { useDevelopStore } from "../stores/developStore";
 
 export function useKeyboardShortcuts() {
-  const { viewMode, setViewMode, selectedImageId } = useUiStore();
+  const { viewMode, setViewMode, selectedImageId, selectedImageIds, setShowDeleteConfirm } = useUiStore();
   const { setRating, setFlag } = useCatalogStore();
   const { undo, redo } = useDevelopStore();
 
@@ -56,6 +56,13 @@ export function useKeyboardShortcuts() {
         return;
       }
 
+      // Delete selected images
+      if (selectedImageIds.length > 0 && e.key === "Delete") {
+        e.preventDefault();
+        setShowDeleteConfirm(true);
+        return;
+      }
+
       // Undo/Redo
       if (ctrl && e.key.toLowerCase() === "z" && !e.shiftKey) {
         e.preventDefault();
@@ -71,5 +78,5 @@ export function useKeyboardShortcuts() {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [viewMode, selectedImageId, setViewMode, setRating, setFlag, undo, redo]);
+  }, [viewMode, selectedImageId, selectedImageIds, setViewMode, setRating, setFlag, setShowDeleteConfirm, undo, redo]);
 }

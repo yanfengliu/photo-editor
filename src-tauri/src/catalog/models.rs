@@ -92,6 +92,19 @@ pub struct EditParams {
     pub hsl_hue: [f32; 8],
     pub hsl_saturation: [f32; 8],
     pub hsl_luminance: [f32; 8],
+    // Crop & Rotation
+    #[serde(default)]
+    pub crop_x: f32,
+    #[serde(default)]
+    pub crop_y: f32,
+    #[serde(default = "default_one")]
+    pub crop_width: f32,
+    #[serde(default = "default_one")]
+    pub crop_height: f32,
+    #[serde(default)]
+    pub rotation: i32,
+    #[serde(default)]
+    pub rotation_fine: f32,
     // Lens Correction
     #[serde(default)]
     pub enable_lens_correction: bool,
@@ -107,6 +120,7 @@ pub struct EditParams {
     pub lens_distortion_amount: f32,
 }
 
+fn default_one() -> f32 { 1.0 }
 fn default_true() -> bool { true }
 fn default_lens_amount() -> f32 { 100.0 }
 
@@ -152,6 +166,12 @@ impl Default for EditParams {
             hsl_hue: [0.0; 8],
             hsl_saturation: [0.0; 8],
             hsl_luminance: [0.0; 8],
+            crop_x: 0.0,
+            crop_y: 0.0,
+            crop_width: 1.0,
+            crop_height: 1.0,
+            rotation: 0,
+            rotation_fine: 0.0,
             enable_lens_correction: false,
             lens_profile_id: None,
             lens_distortion: 0.0,
