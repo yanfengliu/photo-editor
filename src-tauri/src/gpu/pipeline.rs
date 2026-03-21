@@ -219,6 +219,10 @@ struct CpuEditProfile {
     vibrance_scale: f32,
     apply_dehaze: bool,
     dehaze_scale: f32,
+    apply_hsl: bool,
+    hsl_hue: [f32; 8],
+    hsl_saturation: [f32; 8],
+    hsl_luminance: [f32; 8],
 }
 
 impl CpuEditProfile {
@@ -242,6 +246,19 @@ impl CpuEditProfile {
             || params.whites.abs() > 0.001
             || params.blacks.abs() > 0.001;
 
+        let apply_hsl = params.hsl_hue.iter().any(|v| v.abs() > 0.001)
+            || params.hsl_saturation.iter().any(|v| v.abs() > 0.001)
+            || params.hsl_luminance.iter().any(|v| v.abs() > 0.001);
+
+        let mut hsl_hue = [0.0f32; 8];
+        let mut hsl_saturation = [0.0f32; 8];
+        let mut hsl_luminance = [0.0f32; 8];
+        for i in 0..8 {
+            hsl_hue[i] = params.hsl_hue[i];
+            hsl_saturation[i] = params.hsl_saturation[i];
+            hsl_luminance[i] = params.hsl_luminance[i];
+        }
+
         Self {
             apply_white_balance: temp_shift.abs() > 0.001 || params.tint.abs() > 0.001,
             temp_red_scale,
@@ -262,6 +279,10 @@ impl CpuEditProfile {
             vibrance_scale,
             apply_dehaze: params.dehaze.abs() > 0.01,
             dehaze_scale,
+            apply_hsl,
+            hsl_hue,
+            hsl_saturation,
+            hsl_luminance,
         }
     }
 
@@ -273,7 +294,88 @@ impl CpuEditProfile {
             && !self.apply_saturation
             && !self.apply_vibrance
             && !self.apply_dehaze
+            && !self.apply_hsl
     }
+}
+
+fn rgb_to_hsl(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    let max_c = r.max(g).max(b);
+    let min_c = r.min(g).min(b);
+    let l = (max_c + min_c) * 0.5;
+    if (max_c - min_c).abs() < 1e-6 {
+        return (0.0, 0.0, l);
+    }
+    let d = max_c - min_c;
+    let s = if l < 0.5 { d / (max_c + min_c) } else { d / (2.0 - max_c - min_c) };
+    let mut h = if (max_c - r).abs() < 1e-6 {
+        let mut v = (g - b) / d;
+        if g < b { v += 6.0; }
+        v
+    } else if (max_c - g).abs() < 1e-6 {
+        (b - r) / d + 2.0
+    } else {
+        (r - g) / d + 4.0
+    };
+    h /= 6.0;
+    (h, s, l)
+}
+
+fn hue_to_rgb(p: f32, q: f32, t_in: f32) -> f32 {
+    let mut t = t_in;
+    if t < 0.0 { t += 1.0; }
+    if t > 1.0 { t -= 1.0; }
+    if t < 1.0 / 6.0 { return p + (q - p) * 6.0 * t; }
+    if t < 1.0 / 2.0 { return q; }
+    if t < 2.0 / 3.0 { return p + (q - p) * (2.0 / 3.0 - t) * 6.0; }
+    p
+}
+
+fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
+    if s.abs() < 1e-6 {
+        return (l, l, l);
+    }
+    let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
+    let p = 2.0 * l - q;
+    (
+        hue_to_rgb(p, q, h + 1.0 / 3.0),
+        hue_to_rgb(p, q, h),
+        hue_to_rgb(p, q, h - 1.0 / 3.0),
+    )
+}
+
+fn get_channel_weight(hue: f32, channel: u32) -> f32 {
+    let center = channel as f32 / 8.0;
+    let mut dist = (hue - center).abs();
+    dist = dist.min(1.0 - dist); // wrap around
+    let width = 1.0 / 8.0;
+    (1.0 - dist / width).max(0.0)
+}
+
+fn apply_hsl_to_pixel(pixel: &mut [u8], profile: CpuEditProfile) {
+    let r = pixel[0] as f32 / 255.0;
+    let g = pixel[1] as f32 / 255.0;
+    let b = pixel[2] as f32 / 255.0;
+
+    let (mut h, mut s, mut l) = rgb_to_hsl(r, g, b);
+
+    for ch in 0..8u32 {
+        let w = get_channel_weight(h, ch);
+        if w > 0.0 {
+            h += profile.hsl_hue[ch as usize] / 360.0 * w;
+            s *= 1.0 + profile.hsl_saturation[ch as usize] / 100.0 * w;
+            l *= 1.0 + profile.hsl_luminance[ch as usize] / 100.0 * w;
+        }
+    }
+
+    // Wrap hue, clamp s/l
+    h = h.rem_euclid(1.0);
+    s = s.clamp(0.0, 1.0);
+    l = l.clamp(0.0, 1.0);
+
+    let (nr, ng, nb) = hsl_to_rgb(h, s, l);
+    pixel[0] = (nr.clamp(0.0, 1.0) * 255.0) as u8;
+    pixel[1] = (ng.clamp(0.0, 1.0) * 255.0) as u8;
+    pixel[2] = (nb.clamp(0.0, 1.0) * 255.0) as u8;
 }
 
 fn apply_edits_to_pixel(pixel: &mut [u8], profile: CpuEditProfile) {
@@ -364,27 +466,28 @@ pub fn apply_edits_cpu(rgba_data: &[u8], params: &EditParams) -> Vec<u8> {
     let profile = CpuEditProfile::from_params(params);
     let curves = CurveLuts::from_params(params);
 
-    if profile.is_neutral() && curves.is_identity() {
-        return rgba_data.to_vec();
-    }
-
     let mut result = rgba_data.to_vec();
     let pixel_count = result.len() / 4;
 
+    let apply_basic = !profile.is_neutral();
+    let apply_curves = !curves.is_identity();
+    let apply_hsl = profile.apply_hsl;
+
+    // Nothing to do check (including HSL)
+    if !apply_basic && !apply_curves && !apply_hsl {
+        return rgba_data.to_vec();
+    }
+
+    let process_pixel = |pixel: &mut [u8]| {
+        if apply_basic { apply_edits_to_pixel(pixel, profile); }
+        if apply_hsl { apply_hsl_to_pixel(pixel, profile); }
+        if apply_curves { curves.apply(pixel); }
+    };
+
     if pixel_count >= PARALLEL_PIXEL_THRESHOLD {
-        result
-            .par_chunks_exact_mut(4)
-            .for_each(|pixel| {
-                if !profile.is_neutral() { apply_edits_to_pixel(pixel, profile); }
-                if !curves.is_identity() { curves.apply(pixel); }
-            });
+        result.par_chunks_exact_mut(4).for_each(process_pixel);
     } else {
-        result
-            .chunks_exact_mut(4)
-            .for_each(|pixel| {
-                if !profile.is_neutral() { apply_edits_to_pixel(pixel, profile); }
-                if !curves.is_identity() { curves.apply(pixel); }
-            });
+        result.chunks_exact_mut(4).for_each(process_pixel);
     }
 
     result
@@ -808,6 +911,57 @@ mod tests {
             CurvePoint { x: 1.0, y: 1.0 },
         ];
         assert!(!is_identity_curve(&non_identity));
+    }
+
+    #[test]
+    fn test_hsl_saturation_desaturates_red() {
+        // Pure red pixel
+        let input = vec![255, 0, 0, 255];
+        let mut params = EditParams::default();
+        // Desaturate the red channel (channel 0)
+        params.hsl_saturation = [-100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let output = apply_edits_cpu(&input, &params);
+        // Red should lose saturation — channels should converge
+        let max_diff = (output[0] as i32 - output[1] as i32).abs()
+            .max((output[1] as i32 - output[2] as i32).abs());
+        assert!(max_diff < 30, "Desaturated red should be near gray, got ({}, {}, {})", output[0], output[1], output[2]);
+    }
+
+    #[test]
+    fn test_hsl_hue_shifts_red() {
+        // Pure red pixel
+        let input = vec![255, 0, 0, 255];
+        let mut params = EditParams::default();
+        // Shift red hue by +120 degrees (toward green)
+        params.hsl_hue = [120.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let output = apply_edits_cpu(&input, &params);
+        // Green channel should now be dominant
+        assert!(output[1] > output[0] && output[1] > output[2],
+            "Hue-shifted red should be greenish, got ({}, {}, {})", output[0], output[1], output[2]);
+    }
+
+    #[test]
+    fn test_hsl_luminance_darkens() {
+        // Pure red pixel
+        let input = vec![255, 0, 0, 255];
+        let mut params = EditParams::default();
+        // Darken the red channel
+        params.hsl_luminance = [-50.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let output = apply_edits_cpu(&input, &params);
+        assert!(output[0] < input[0], "Luminance reduction should darken red: {} vs {}", output[0], input[0]);
+    }
+
+    #[test]
+    fn test_hsl_does_not_affect_unrelated_channel() {
+        // Pure blue pixel
+        let input = vec![0, 0, 255, 255];
+        let mut params = EditParams::default();
+        // Only adjust red channel — should not affect blue
+        params.hsl_saturation = [-100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let output = apply_edits_cpu(&input, &params);
+        assert_eq!(output[0], 0, "Blue pixel R should stay 0, got {}", output[0]);
+        assert_eq!(output[1], 0, "Blue pixel G should stay 0, got {}", output[1]);
+        assert_eq!(output[2], 255, "Blue pixel B should stay 255, got {}", output[2]);
     }
 
     #[test]
