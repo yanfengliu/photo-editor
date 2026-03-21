@@ -4,6 +4,7 @@
 .item { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-sm); transition: background var(--transition-fast); }
 .item:hover { background: var(--bg-hover); }
 .item.active { background: var(--bg-active); color: var(--text-primary); }
+.item.dragOver { background: var(--accent); color: var(--text-primary); }
 .count { font-size: var(--font-size-xs); color: var(--text-muted); }
 .empty { padding: 8px; font-size: var(--font-size-xs); color: var(--text-muted); font-style: italic; }
 .sectionHeader { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; margin-bottom: 4px; }

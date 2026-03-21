@@ -41,8 +41,8 @@ describe("ThumbnailCard", () => {
           created_at: "2024-01-01T00:00:00Z",
         }}
         isSelected={false}
-        onClick={() => {}}
-        onDoubleClick={() => {}}
+        onClick={() => undefined}
+        onDoubleClick={() => undefined}
       />
     );
 

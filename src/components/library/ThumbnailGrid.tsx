@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { VirtuosoGrid } from "react-virtuoso";
 import { useCatalogStore } from "../../stores/catalogStore";
 import { useUiStore } from "../../stores/uiStore";
@@ -9,11 +9,34 @@ import styles from "./ThumbnailGrid.module.css";
 
 export function ThumbnailGrid() {
   const { images, loading } = useCatalogStore();
-  const { selectedImageId, selectImage, setViewMode } = useUiStore();
+  const { selectedImageIds, selectImage, toggleImageSelection, setSelectedImages, setViewMode } = useUiStore();
   const [contextMenu, setContextMenu] = useState<{
     position: MenuPosition;
     imageId: string;
   } | null>(null);
+  const lastClickedIndex = useRef<number | null>(null);
+
+  const selectedSet = useMemo(() => new Set(selectedImageIds), [selectedImageIds]);
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent, imageId: string, index: number) => {
+      if (e.shiftKey && lastClickedIndex.current !== null) {
+        const start = Math.min(lastClickedIndex.current, index);
+        const end = Math.max(lastClickedIndex.current, index);
+        const rangeIds = images.slice(start, end + 1).map((img) => img.id);
+        const merged = new Set(selectedImageIds);
+        rangeIds.forEach((id) => merged.add(id));
+        setSelectedImages([...merged]);
+      } else if (e.ctrlKey || e.metaKey) {
+        toggleImageSelection(imageId);
+        lastClickedIndex.current = index;
+      } else {
+        selectImage(imageId);
+        lastClickedIndex.current = index;
+      }
+    },
+    [images, selectedImageIds, selectImage, toggleImageSelection, setSelectedImages]
+  );
 
   const handleDoubleClick = useCallback(
     (id: string) => {
@@ -29,6 +52,17 @@ export function ThumbnailGrid() {
       setContextMenu({ position: { x: e.clientX, y: e.clientY }, imageId });
     },
     []
+  );
+
+  const handleDragStart = useCallback(
+    (e: React.DragEvent, imageId: string) => {
+      const dragIds = selectedSet.has(imageId)
+        ? selectedImageIds
+        : [imageId];
+      e.dataTransfer.setData("application/x-photo-ids", JSON.stringify(dragIds));
+      e.dataTransfer.effectAllowed = "copy";
+    },
+    [selectedImageIds, selectedSet]
   );
 
   const gridComponents = useMemo(
@@ -73,10 +107,11 @@ export function ThumbnailGrid() {
             <ThumbnailCard
               key={image.id}
               image={image}
-              isSelected={selectedImageId === image.id}
-              onClick={() => selectImage(image.id)}
+              isSelected={selectedSet.has(image.id)}
+              onClick={(e) => handleClick(e, image.id, index)}
               onDoubleClick={() => handleDoubleClick(image.id)}
               onContextMenu={(e) => handleContextMenu(e, image.id)}
+              onDragStart={(e) => handleDragStart(e, image.id)}
             />
           );
         }}

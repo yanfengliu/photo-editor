@@ -4,16 +4,16 @@ import { Rating } from "../common/Rating";
 import { FlagToggle } from "../common/FlagToggle";
 import styles from "./ThumbnailCard.module.css";
 
-interface Props { image: ImageRecord; isSelected: boolean; onClick: () => void; onDoubleClick: () => void; onContextMenu?: (e: React.MouseEvent) => void; }
+interface Props { image: ImageRecord; isSelected: boolean; onClick: (e: React.MouseEvent) => void; onDoubleClick: () => void; onContextMenu?: (e: React.MouseEvent) => void; onDragStart?: (e: React.DragEvent) => void; }
 
-export function ThumbnailCard({ image, isSelected, onClick, onDoubleClick, onContextMenu }: Props) {
+export function ThumbnailCard({ image, isSelected, onClick, onDoubleClick, onContextMenu, onDragStart }: Props) {
   const thumbnailUrl = useThumbnail(image.id);
 
   return (
-    <div className={`${styles.card} ${isSelected ? styles.selected : ""}`} onClick={onClick} onDoubleClick={onDoubleClick} onContextMenu={onContextMenu}>
+    <div className={`${styles.card} ${isSelected ? styles.selected : ""}`} onClick={onClick} onDoubleClick={onDoubleClick} onContextMenu={onContextMenu} draggable onDragStart={onDragStart}>
       <div className={styles.preview}>
         {thumbnailUrl ? (
-          <img className={styles.thumbnail} src={thumbnailUrl} alt={image.file_name} />
+          <img className={styles.thumbnail} src={thumbnailUrl} alt={image.file_name} draggable={false} />
         ) : (
           <div className={styles.placeholder}><span className={styles.format}>{image.format.toUpperCase()}</span></div>
         )}
