@@ -1,0 +1,3 @@
+.newCollRow { padding: 4px 8px; }
+.newCollInput { width: 100%; padding: 4px 8px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: var(--font-size-sm); }
+.newCollInput::placeholder { color: var(--text-muted); }

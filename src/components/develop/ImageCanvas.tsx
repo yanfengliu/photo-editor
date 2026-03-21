@@ -232,6 +232,40 @@ export function ImageCanvas() {
   }, []);
 
   const isZoomed = view !== null;
+  const fineAngle = editParams.rotation_fine || 0;
+
+  // Compute the largest inscribed axis-aligned rectangle (same aspect ratio)
+  // inside the rotated image. For W×H rotated by θ, each corner (a,b) of the
+  // inscribed rect must satisfy: a·cosθ + b·sinθ ≤ W/2 AND a·sinθ + b·cosθ ≤ H/2.
+  // With same-aspect constraint a/b = W/H, the scale factor is:
+  //   s = min(W/(W·cosθ + H·sinθ), H/(W·sinθ + H·cosθ))
+  const absAngle = Math.abs(fineAngle * Math.PI / 180);
+  const sinA = Math.sin(absAngle);
+  const cosA = Math.cos(absAngle);
+
+  let inscribedScale = 1;
+  if (absAngle > 0.001 && imageW > 0 && imageH > 0) {
+    inscribedScale = Math.min(
+      imageW / (imageW * cosA + imageH * sinA),
+      imageH / (imageW * sinA + imageH * cosA)
+    );
+  }
+
+  // The inscribed crop rect in display pixels
+  const displayW = imageW * displayScale;
+  const displayH = imageH * displayScale;
+  const cropW = displayW * inscribedScale;
+  const cropH = displayH * inscribedScale;
+
+  // Center of the image in container coordinates
+  const imgCenterX = offset.x + displayW / 2;
+  const imgCenterY = offset.y + displayH / 2;
+
+  // Build transform: translate to position, then translate to center, rotate, translate back
+  // This ensures rotation is around the image center
+  const canvasTransform = fineAngle
+    ? `translate(${offset.x}px, ${offset.y}px) translate(${displayW / 2}px, ${displayH / 2}px) rotate(${fineAngle}deg) translate(${-displayW / 2}px, ${-displayH / 2}px) scale(${displayScale})`
+    : `translate(${offset.x}px, ${offset.y}px) scale(${displayScale})`;
 
   return (
     <div
@@ -248,10 +282,21 @@ export function ImageCanvas() {
         ref={canvasRef}
         className={styles.canvas}
         style={{
-          transform: `translate(${offset.x}px, ${offset.y}px) scale(${displayScale})${editParams.rotation_fine ? ` rotate(${editParams.rotation_fine}deg)` : ""}`,
+          transform: canvasTransform,
           imageRendering: displayScale > 2 ? "pixelated" : undefined,
         }}
       />
+      {fineAngle !== 0 && (
+        <div
+          className={styles.cropOverlay}
+          style={{
+            left: imgCenterX - cropW / 2,
+            top: imgCenterY - cropH / 2,
+            width: cropW,
+            height: cropH,
+          }}
+        />
+      )}
       {isProcessing && <div className={styles.processing}>Processing...</div>}
       {isZoomed && (
         <div className={styles.zoomBadge}>

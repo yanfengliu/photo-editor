@@ -2,3 +2,4 @@
 .canvas { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
 .processing { position: absolute; top: 12px; right: 12px; padding: 4px 12px; background: rgba(0,0,0,0.6); color: var(--text-secondary); border-radius: var(--radius-sm); font-size: var(--font-size-xs); pointer-events: none; }
 .zoomBadge { position: absolute; bottom: 12px; left: 12px; padding: 2px 8px; background: rgba(0,0,0,0.6); color: var(--text-secondary); border-radius: var(--radius-sm); font-size: var(--font-size-xs); pointer-events: none; }
+.cropOverlay { position: absolute; border: 2px solid rgba(255,255,255,0.8); box-shadow: 0 0 0 9999px rgba(0,0,0,0.5); pointer-events: none; z-index: 1; }

@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
   ContextMenu,
   MenuItem,
@@ -8,6 +8,7 @@ import {
 } from "../common/ContextMenu";
 import { useUiStore } from "../../stores/uiStore";
 import { useCatalogStore } from "../../stores/catalogStore";
+import styles from "./ImageContextMenu.module.css";
 
 interface Props {
   position: MenuPosition;
@@ -18,8 +19,10 @@ interface Props {
 export function ImageContextMenu({ position, imageId, onClose }: Props) {
   const { setViewMode, selectImage, selectedImageIds, setShowDeleteConfirm } =
     useUiStore();
-  const { collections, addToCollection, setRating, setFlag } =
+  const { collections, addToCollection, createCollection, setRating, setFlag } =
     useCatalogStore();
+  const [showNewColl, setShowNewColl] = useState(false);
+  const [newCollName, setNewCollName] = useState("");
 
   const targetIds =
     selectedImageIds.length > 0 && selectedImageIds.includes(imageId)
@@ -56,6 +59,19 @@ export function ImageContextMenu({ position, imageId, onClose }: Props) {
     [targetIds, addToCollection, onClose]
   );
 
+  const handleCreateAndAdd = useCallback(async () => {
+    const name = newCollName.trim();
+    if (!name) return;
+    await createCollection(name);
+    // Get the newly created collection (last in list)
+    const cols = useCatalogStore.getState().collections;
+    const newCol = cols[cols.length - 1];
+    if (newCol) {
+      await addToCollection(newCol.id, targetIds);
+    }
+    onClose();
+  }, [newCollName, createCollection, addToCollection, targetIds, onClose]);
+
   const handleDelete = useCallback(() => {
     // Ensure targeted images are selected
     if (!selectedImageIds.includes(imageId)) {
@@ -83,20 +99,37 @@ export function ImageContextMenu({ position, imageId, onClose }: Props) {
         <MenuItem label="Rejected" onClick={() => handleFlag("rejected")} />
         <MenuItem label="Unflagged" onClick={() => handleFlag("none")} />
       </SubMenu>
-      {collections.length > 0 && (
-        <>
-          <MenuDivider />
-          <SubMenu label="Add to Collection">
-            {collections.map((col) => (
-              <MenuItem
-                key={col.id}
-                label={col.name}
-                onClick={() => handleAddToCollection(col.id)}
-              />
-            ))}
-          </SubMenu>
-        </>
-      )}
+      <MenuDivider />
+      <SubMenu label="Add to Collection">
+        {collections.map((col) => (
+          <MenuItem
+            key={col.id}
+            label={col.name}
+            onClick={() => handleAddToCollection(col.id)}
+          />
+        ))}
+        {collections.length > 0 && <MenuDivider />}
+        {showNewColl ? (
+          <div className={styles.newCollRow}>
+            <input
+              className={styles.newCollInput}
+              type="text"
+              placeholder="Name..."
+              value={newCollName}
+              onChange={(e) => setNewCollName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateAndAdd();
+                if (e.key === "Escape") setShowNewColl(false);
+                e.stopPropagation();
+              }}
+              onClick={(e) => e.stopPropagation()}
+              autoFocus
+            />
+          </div>
+        ) : (
+          <MenuItem label="+ New Collection" onClick={() => setShowNewColl(true)} />
+        )}
+      </SubMenu>
       <MenuDivider />
       <MenuItem
         label={
