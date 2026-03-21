@@ -6,5 +6,6 @@
 .aspectGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
 .aspectBtn { padding: 5px 4px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: var(--font-size-xs); cursor: pointer; transition: background var(--transition-fast); }
 .aspectBtn:hover { background: var(--bg-hover); }
+.aspectBtnActive { background: var(--bg-hover); border-color: var(--text-accent); color: var(--text-accent); }
 .resetBtn { width: 100%; padding: 6px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-accent); font-size: var(--font-size-xs); cursor: pointer; margin-top: 4px; }
 .resetBtn:hover { background: var(--bg-hover); }

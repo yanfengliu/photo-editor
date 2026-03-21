@@ -17,6 +17,7 @@ interface UiState {
   showBeforeAfter: boolean;
   zoomLevel: number;
   statusMessage: string;
+  cropAspectRatio: number | null; // locked w:h ratio in image pixels, null = free
 
   setViewMode: (mode: ViewMode) => void;
   toggleLeftPanel: () => void;
@@ -33,6 +34,7 @@ interface UiState {
   toggleBeforeAfter: () => void;
   setZoomLevel: (level: number) => void;
   setStatusMessage: (message: string) => void;
+  setCropAspectRatio: (ratio: number | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -50,6 +52,7 @@ export const useUiStore = create<UiState>((set) => ({
   showBeforeAfter: false,
   zoomLevel: 1,
   statusMessage: "Ready",
+  cropAspectRatio: null,
 
   setViewMode: (mode) => set({ viewMode: mode }),
   toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),
@@ -74,4 +77,5 @@ export const useUiStore = create<UiState>((set) => ({
   toggleBeforeAfter: () => set((s) => ({ showBeforeAfter: !s.showBeforeAfter })),
   setZoomLevel: (level) => set({ zoomLevel: level }),
   setStatusMessage: (message) => set({ statusMessage: message }),
+  setCropAspectRatio: (ratio) => set({ cropAspectRatio: ratio }),
 }));

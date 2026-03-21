@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { useDevelopStore } from "../../stores/developStore";
+import { useUiStore } from "../../stores/uiStore";
 import { useDebounce } from "../../hooks/useDebounce";
 import { useThrottle } from "../../hooks/useThrottle";
 import styles from "./ImageCanvas.module.css";
@@ -43,6 +44,7 @@ export function ImageCanvas() {
     stopAdjusting,
   } = useDevelopStore();
   const currentImageId = useDevelopStore((s) => s.currentImageId);
+  const cropAspectRatio = useUiStore((s) => s.cropAspectRatio);
   const [previewSize, setPreviewSize] = useState(DEFAULT_PREVIEW_SIZE);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
 
@@ -244,47 +246,124 @@ export function ImageCanvas() {
       const { handle, startX, startY, startCrop } = cropDrag;
       const { dx, dy } = pxToNorm(e.clientX - startX, e.clientY - startY);
 
-      let { x, y, w, h } = startCrop;
+      // Normalized aspect ratio in crop coordinate space:
+      // crop_w / crop_h = pixelRatio * imageH / imageW
+      const nr = cropAspectRatio ? cropAspectRatio * imageH / imageW : null;
 
-      switch (handle) {
-        case "move":
-          x = Math.max(0, Math.min(1 - w, x + dx));
-          y = Math.max(0, Math.min(1 - h, y + dy));
-          break;
-        case "nw":
-          x = Math.max(0, Math.min(x + w - MIN_CROP_SIZE, x + dx));
-          y = Math.max(0, Math.min(y + h - MIN_CROP_SIZE, y + dy));
-          w = startCrop.x + startCrop.w - x;
-          h = startCrop.y + startCrop.h - y;
-          break;
-        case "ne":
-          w = Math.max(MIN_CROP_SIZE, Math.min(1 - x, w + dx));
-          y = Math.max(0, Math.min(y + h - MIN_CROP_SIZE, y + dy));
-          h = startCrop.y + startCrop.h - y;
-          break;
-        case "sw":
-          x = Math.max(0, Math.min(x + w - MIN_CROP_SIZE, x + dx));
-          w = startCrop.x + startCrop.w - x;
-          h = Math.max(MIN_CROP_SIZE, Math.min(1 - y, h + dy));
-          break;
-        case "se":
-          w = Math.max(MIN_CROP_SIZE, Math.min(1 - x, w + dx));
-          h = Math.max(MIN_CROP_SIZE, Math.min(1 - y, h + dy));
-          break;
-        case "n":
-          y = Math.max(0, Math.min(y + h - MIN_CROP_SIZE, y + dy));
-          h = startCrop.y + startCrop.h - y;
-          break;
-        case "s":
-          h = Math.max(MIN_CROP_SIZE, Math.min(1 - y, h + dy));
-          break;
-        case "w":
-          x = Math.max(0, Math.min(x + w - MIN_CROP_SIZE, x + dx));
-          w = startCrop.x + startCrop.w - x;
-          break;
-        case "e":
-          w = Math.max(MIN_CROP_SIZE, Math.min(1 - x, w + dx));
-          break;
+      let { x, y, w, h } = startCrop;
+      const right = startCrop.x + startCrop.w;
+      const bottom = startCrop.y + startCrop.h;
+
+      if (handle === "move") {
+        x = Math.max(0, Math.min(1 - w, x + dx));
+        y = Math.max(0, Math.min(1 - h, y + dy));
+      } else if (!nr) {
+        // Free aspect ratio — unconstrained resize
+        switch (handle) {
+          case "nw":
+            x = Math.max(0, Math.min(right - MIN_CROP_SIZE, x + dx));
+            y = Math.max(0, Math.min(bottom - MIN_CROP_SIZE, y + dy));
+            w = right - x;
+            h = bottom - y;
+            break;
+          case "ne":
+            w = Math.max(MIN_CROP_SIZE, Math.min(1 - x, w + dx));
+            y = Math.max(0, Math.min(bottom - MIN_CROP_SIZE, y + dy));
+            h = bottom - y;
+            break;
+          case "sw":
+            x = Math.max(0, Math.min(right - MIN_CROP_SIZE, x + dx));
+            w = right - x;
+            h = Math.max(MIN_CROP_SIZE, Math.min(1 - y, h + dy));
+            break;
+          case "se":
+            w = Math.max(MIN_CROP_SIZE, Math.min(1 - x, w + dx));
+            h = Math.max(MIN_CROP_SIZE, Math.min(1 - y, h + dy));
+            break;
+          case "n":
+            y = Math.max(0, Math.min(bottom - MIN_CROP_SIZE, y + dy));
+            h = bottom - y;
+            break;
+          case "s":
+            h = Math.max(MIN_CROP_SIZE, Math.min(1 - y, h + dy));
+            break;
+          case "w":
+            x = Math.max(0, Math.min(right - MIN_CROP_SIZE, x + dx));
+            w = right - x;
+            break;
+          case "e":
+            w = Math.max(MIN_CROP_SIZE, Math.min(1 - x, w + dx));
+            break;
+        }
+      } else {
+        // Locked aspect ratio — constrained resize
+        // For corners, use the dominant drag axis; for edges, derive the other dimension.
+        switch (handle) {
+          case "se": {
+            // Anchor top-left, grow right/down
+            const dPx = Math.abs(dx * imageW) > Math.abs(dy * imageH) ? dx : dy * nr;
+            w = Math.max(MIN_CROP_SIZE, Math.min(1 - x, startCrop.w + dPx));
+            h = w / nr;
+            if (y + h > 1) { h = 1 - y; w = h * nr; }
+            break;
+          }
+          case "nw": {
+            // Anchor bottom-right, grow left/up
+            const dPx = Math.abs(dx * imageW) > Math.abs(dy * imageH) ? -dx : -dy * nr;
+            w = Math.max(MIN_CROP_SIZE, Math.min(right, startCrop.w + dPx));
+            h = w / nr;
+            x = right - w;
+            y = bottom - h;
+            if (x < 0) { x = 0; w = right; h = w / nr; y = bottom - h; }
+            if (y < 0) { y = 0; h = bottom; w = h * nr; x = right - w; }
+            break;
+          }
+          case "ne": {
+            // Anchor bottom-left, grow right/up
+            const dPx = Math.abs(dx * imageW) > Math.abs(dy * imageH) ? dx : -dy * nr;
+            w = Math.max(MIN_CROP_SIZE, Math.min(1 - x, startCrop.w + dPx));
+            h = w / nr;
+            y = bottom - h;
+            if (y < 0) { y = 0; h = bottom; w = h * nr; }
+            break;
+          }
+          case "sw": {
+            // Anchor top-right, grow left/down
+            const dPx = Math.abs(dx * imageW) > Math.abs(dy * imageH) ? -dx : dy * nr;
+            w = Math.max(MIN_CROP_SIZE, Math.min(right, startCrop.w + dPx));
+            h = w / nr;
+            x = right - w;
+            if (x < 0) { x = 0; w = right; h = w / nr; }
+            if (y + h > 1) { h = 1 - y; w = h * nr; x = right - w; }
+            break;
+          }
+          case "e": case "w": {
+            // Horizontal edge: width is primary, derive height, keep vertical center
+            if (handle === "w") {
+              x = Math.max(0, Math.min(right - MIN_CROP_SIZE, x + dx));
+              w = right - x;
+            } else {
+              w = Math.max(MIN_CROP_SIZE, Math.min(1 - x, w + dx));
+            }
+            h = w / nr;
+            const cy = startCrop.y + startCrop.h / 2;
+            y = Math.max(0, Math.min(1 - h, cy - h / 2));
+            break;
+          }
+          case "n": case "s": {
+            // Vertical edge: height is primary, derive width, keep horizontal center
+            if (handle === "n") {
+              y = Math.max(0, Math.min(bottom - MIN_CROP_SIZE, y + dy));
+              h = bottom - y;
+            } else {
+              h = Math.max(MIN_CROP_SIZE, Math.min(1 - y, h + dy));
+            }
+            w = h * nr;
+            const cx = startCrop.x + startCrop.w / 2;
+            x = Math.max(0, Math.min(1 - w, cx - w / 2));
+            break;
+          }
+        }
       }
 
       updateParam("crop_x", parseFloat(x.toFixed(4)));
@@ -292,7 +371,7 @@ export function ImageCanvas() {
       updateParam("crop_width", parseFloat(w.toFixed(4)));
       updateParam("crop_height", parseFloat(h.toFixed(4)));
     },
-    [cropDrag, pxToNorm, updateParam]
+    [cropDrag, pxToNorm, updateParam, cropAspectRatio, imageW, imageH]
   );
 
   const handleCropPointerUp = useCallback(() => {

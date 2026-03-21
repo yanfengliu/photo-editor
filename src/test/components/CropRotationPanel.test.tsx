@@ -105,16 +105,18 @@ describe("CropRotationPanel", () => {
     renderExpanded();
     fireEvent.click(screen.getByText("1:1"));
     const { crop_width, crop_height } = useDevelopStore.getState().editParams;
-    const ratio = crop_width / crop_height;
-    expect(Math.abs(ratio - 1)).toBeLessThan(0.01);
+    // Check pixel aspect ratio: (crop_width * imgW) / (crop_height * imgH) ≈ 1
+    const pixelRatio = (crop_width * 1920) / (crop_height * 1080);
+    expect(Math.abs(pixelRatio - 1)).toBeLessThan(0.01);
   });
 
   it("should apply 16:9 aspect ratio crop", () => {
     renderExpanded();
     fireEvent.click(screen.getByText("16:9"));
     const { crop_width, crop_height } = useDevelopStore.getState().editParams;
-    const ratio = crop_width / crop_height;
-    expect(Math.abs(ratio - 16 / 9)).toBeLessThan(0.02);
+    // Check pixel aspect ratio: (crop_width * imgW) / (crop_height * imgH) ≈ 16/9
+    const pixelRatio = (crop_width * 1920) / (crop_height * 1080);
+    expect(Math.abs(pixelRatio - 16 / 9)).toBeLessThan(0.02);
   });
 
   it("should not modify crop on Free preset", () => {

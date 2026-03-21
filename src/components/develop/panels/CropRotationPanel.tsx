@@ -1,4 +1,5 @@
 import { useDevelopStore } from "../../../stores/developStore";
+import { useUiStore } from "../../../stores/uiStore";
 import { CollapsibleSection } from "../controls/CollapsibleSection";
 import { AdjustmentSlider } from "../controls/AdjustmentSlider";
 import styles from "./CropRotationPanel.module.css";
@@ -19,6 +20,7 @@ type AspectValue = null | "original" | number;
 export function CropRotationPanel() {
   const { editParams, updateParam, previewWidth, previewHeight } =
     useDevelopStore();
+  const { cropAspectRatio, setCropAspectRatio } = useUiStore();
 
   const handleRotate = (degrees: number) => {
     const current = editParams.rotation;
@@ -31,28 +33,43 @@ export function CropRotationPanel() {
     updateParam("crop_y", 0);
     updateParam("crop_width", 1);
     updateParam("crop_height", 1);
+    setCropAspectRatio(null);
   };
 
   const handleAspectSelect = (value: AspectValue) => {
-    if (value === null) return; // Free — no constraint applied
+    if (value === null) {
+      setCropAspectRatio(null);
+      return;
+    }
     let ratio: number;
     if (value === "original") {
       ratio = previewWidth && previewHeight ? previewWidth / previewHeight : 1;
     } else {
       ratio = value;
     }
-    // Fit the largest rect with this ratio inside the current image
+
+    setCropAspectRatio(ratio);
+
+    // Compute normalized crop dimensions that produce the desired pixel aspect ratio.
+    // pixel_w / pixel_h = ratio  →  (crop_w * imgW) / (crop_h * imgH) = ratio
+    // So:  crop_w / crop_h = ratio * imgH / imgW  (the "normalized ratio")
+    const imgW = previewWidth || 1;
+    const imgH = previewHeight || 1;
+    const normRatio = ratio * imgH / imgW;
+
     const cx = editParams.crop_x + editParams.crop_width / 2;
     const cy = editParams.crop_y + editParams.crop_height / 2;
     let w: number, h: number;
-    if (ratio >= 1) {
+    if (normRatio >= 1) {
+      // Crop is wider (in normalized coords) than tall
       w = Math.min(1, editParams.crop_width);
-      h = w / ratio;
-      if (h > 1) { h = 1; w = h * ratio; }
+      h = w / normRatio;
+      if (h > 1) { h = 1; w = h * normRatio; }
     } else {
+      // Crop is taller than wide
       h = Math.min(1, editParams.crop_height);
-      w = h * ratio;
-      if (w > 1) { w = 1; h = w / ratio; }
+      w = h * normRatio;
+      if (w > 1) { w = 1; h = w / normRatio; }
     }
     // Clamp so crop stays within [0,1]
     const x = Math.max(0, Math.min(1 - w, cx - w / 2));
@@ -68,6 +85,9 @@ export function CropRotationPanel() {
     editParams.crop_y !== 0 ||
     editParams.crop_width !== 1 ||
     editParams.crop_height !== 1;
+
+  // Determine which preset is active
+  const activeRatio = cropAspectRatio;
 
   return (
     <CollapsibleSection title="Crop & Rotate" defaultOpen={false}>
@@ -111,15 +131,23 @@ export function CropRotationPanel() {
       <div className={styles.section}>
         <h4 className={styles.sub}>Aspect Ratio</h4>
         <div className={styles.aspectGrid}>
-          {ASPECT_PRESETS.map((preset) => (
-            <button
-              key={preset.label}
-              className={styles.aspectBtn}
-              onClick={() => handleAspectSelect(preset.value as AspectValue)}
-            >
-              {preset.label}
-            </button>
-          ))}
+          {ASPECT_PRESETS.map((preset) => {
+            const isActive =
+              preset.value === null
+                ? activeRatio === null
+                : preset.value === "original"
+                  ? activeRatio !== null && previewWidth > 0 && Math.abs(activeRatio - previewWidth / previewHeight) < 0.01
+                  : activeRatio !== null && Math.abs(activeRatio - (preset.value as number)) < 0.01;
+            return (
+              <button
+                key={preset.label}
+                className={`${styles.aspectBtn} ${isActive ? styles.aspectBtnActive : ""}`}
+                onClick={() => handleAspectSelect(preset.value as AspectValue)}
+              >
+                {preset.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
