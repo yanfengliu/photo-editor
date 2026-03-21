@@ -41,6 +41,8 @@ Uses lensfun's open-source measured lens profile database (1000+ lenses). PTLens
 
 ## Project Structure
 
+Keep this diagram updated.
+
 ```
 photo-editor/
 ├── src/                              # React frontend
@@ -74,11 +76,8 @@ photo-editor/
 ## Best Practices
 
 ### Testing
-- **Always write tests for changes.** Both unit tests (stores, hooks, components) and functional tests (integration flows).
-- Frontend tests use Vitest + React Testing Library. Run with `npx vitest run`.
-- Rust tests use `#[cfg(test)]` modules. Run with `cd src-tauri && cargo test`.
-- Mock Tauri `invoke` calls via `vi.mock("../../api/...")` with `vi.hoisted` for mock data.
-- Test undo/redo flows end-to-end: edit → undo → redo → verify state at each step.
+- Write unit tests and integration tests for changes if applicable.
+- Run tests and linter after any change. Make sure they pass.
 
 ### Code Quality
 - Extract shared logic into hooks (e.g., `useThumbnail` for thumbnail loading) — don't duplicate.
