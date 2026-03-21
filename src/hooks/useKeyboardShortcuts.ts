@@ -57,12 +57,12 @@ export function useKeyboardShortcuts() {
       }
 
       // Undo/Redo
-      if (ctrl && e.key === "z" && !e.shiftKey) {
+      if (ctrl && e.key.toLowerCase() === "z" && !e.shiftKey) {
         e.preventDefault();
         undo();
         return;
       }
-      if (ctrl && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+      if (ctrl && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) {
         e.preventDefault();
         redo();
         return;

@@ -15,6 +15,7 @@ interface DevelopState {
   redoStack: EditParams[];
   isProcessing: boolean;
   isAdjusting: boolean;
+  adjustStartParams: EditParams | null;
   previewData: Uint8Array | null;
   previewWidth: number;
   previewHeight: number;
@@ -42,6 +43,7 @@ export const useDevelopStore = create<DevelopState>((set, get) => ({
   redoStack: [],
   isProcessing: false,
   isAdjusting: false,
+  adjustStartParams: null,
   previewData: null,
   previewWidth: 0,
   previewHeight: 0,
@@ -83,11 +85,17 @@ export const useDevelopStore = create<DevelopState>((set, get) => ({
   updateParam: (key, value) => {
     const current = get().editParams;
     if (Object.is(current[key], value)) return;
-    set((s) => ({
-      undoStack: [...s.undoStack, { ...current }],
-      redoStack: [],
-      editParams: { ...current, [key]: value },
-    }));
+    if (get().isAdjusting) {
+      // During drag, just update params — undo entry is created in stopAdjusting
+      set({ editParams: { ...current, [key]: value } });
+    } else {
+      // Discrete change (e.g., double-click reset)
+      set((s) => ({
+        undoStack: [...s.undoStack, { ...current }],
+        redoStack: [],
+        editParams: { ...current, [key]: value },
+      }));
+    }
   },
 
   applyEdits: async (previewSize) => {
@@ -180,6 +188,19 @@ export const useDevelopStore = create<DevelopState>((set, get) => ({
 
   setPreviewData: (data, width, height) =>
     set({ previewData: data, previewWidth: width, previewHeight: height }),
-  startAdjusting: () => set({ isAdjusting: true }),
-  stopAdjusting: () => set({ isAdjusting: false }),
+  startAdjusting: () =>
+    set({ isAdjusting: true, adjustStartParams: { ...get().editParams } }),
+  stopAdjusting: () => {
+    const { adjustStartParams, editParams } = get();
+    if (adjustStartParams && serializeParams(adjustStartParams) !== serializeParams(editParams)) {
+      set((s) => ({
+        isAdjusting: false,
+        adjustStartParams: null,
+        undoStack: [...s.undoStack, adjustStartParams],
+        redoStack: [],
+      }));
+    } else {
+      set({ isAdjusting: false, adjustStartParams: null });
+    }
+  },
 }));
