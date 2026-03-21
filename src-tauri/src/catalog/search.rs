@@ -7,6 +7,7 @@ pub fn search_images(
     rating_min: Option<u8>,
     color_label: Option<&str>,
     flag: Option<&str>,
+    collection_id: Option<&str>,
 ) -> Result<Vec<ImageRecord>, Box<dyn std::error::Error>> {
     let mut sql = String::from(
         "SELECT DISTINCT i.id, i.file_path, i.file_name, i.format, i.width, i.height,
@@ -14,11 +15,23 @@ pub fn search_images(
                 i.iso, i.focal_length, i.aperture, i.shutter_speed, i.edit_params, i.created_at
          FROM images i
          LEFT JOIN image_tags it ON i.id = it.image_id
-         LEFT JOIN tags t ON it.tag_id = t.id
-         WHERE 1=1"
+         LEFT JOIN tags t ON it.tag_id = t.id"
     );
+
+    if collection_id.is_some() {
+        sql.push_str(" JOIN collection_images ci ON i.id = ci.image_id");
+    }
+
+    sql.push_str(" WHERE 1=1");
+
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
     let mut idx = 1;
+
+    if let Some(cid) = collection_id {
+        sql.push_str(&format!(" AND ci.collection_id = ?{}", idx));
+        param_values.push(Box::new(cid.to_string()));
+        idx += 1;
+    }
 
     if !query.is_empty() {
         sql.push_str(&format!(" AND (i.file_name LIKE ?{p} OR i.camera LIKE ?{p} OR t.name LIKE ?{p})", p = idx));

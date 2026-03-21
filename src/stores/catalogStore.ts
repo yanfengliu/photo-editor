@@ -87,7 +87,8 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
         filter.query,
         filter.ratingMin > 0 ? filter.ratingMin : undefined,
         filter.colorLabel ?? undefined,
-        filter.flag ?? undefined
+        filter.flag ?? undefined,
+        filter.collectionId ?? undefined
       );
       set({ images, totalImages: images.length, loading: false });
     } catch (err) {
@@ -99,7 +100,15 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   setFilter: (partial) =>
     set((s) => ({ filter: { ...s.filter, ...partial } })),
 
-  clearFilter: () => set({ filter: { ...defaultFilter } }),
+  clearFilter: () => {
+    const { filter } = get();
+    set({ filter: { ...defaultFilter, collectionId: filter.collectionId } });
+    if (filter.collectionId) {
+      get().searchImages();
+    } else {
+      get().loadImages();
+    }
+  },
 
   setRating: async (imageId, rating) => {
     await catalogApi.setRating(imageId, rating);

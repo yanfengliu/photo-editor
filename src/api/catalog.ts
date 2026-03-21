@@ -27,13 +27,15 @@ export async function searchImages(
   query: string,
   ratingMin?: number,
   colorLabel?: string,
-  flag?: string
+  flag?: string,
+  collectionId?: string
 ): Promise<ImageRecord[]> {
   return invoke("search_images", {
     query,
     ratingMin,
     colorLabel,
     flag,
+    collectionId,
   });
 }
 

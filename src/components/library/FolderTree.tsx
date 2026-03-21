@@ -3,7 +3,7 @@ import { useCatalogStore } from "../../stores/catalogStore";
 import styles from "./FolderTree.module.css";
 
 export function FolderTree() {
-  const { collections, loadCollections, createCollection } = useCatalogStore();
+  const { collections, loadCollections, createCollection, filter, setFilter, loadImages, searchImages } = useCatalogStore();
   const [showNewInput, setShowNewInput] = useState(false);
   const [newName, setNewName] = useState("");
 
@@ -30,11 +30,29 @@ export function FolderTree() {
     [handleCreate]
   );
 
+  const handleAllPhotos = useCallback(() => {
+    setFilter({ collectionId: null });
+    loadImages();
+  }, [setFilter, loadImages]);
+
+  const handleCollectionClick = useCallback(
+    (collectionId: string) => {
+      setFilter({ collectionId });
+      searchImages();
+    },
+    [setFilter, searchImages]
+  );
+
+  const activeCollectionId = filter.collectionId;
+
   return (
     <div className={styles.tree}>
       <div className={styles.section}>
         <h3 className={styles.sectionTitle}>Catalog</h3>
-        <div className={styles.item}>
+        <div
+          className={`${styles.item} ${activeCollectionId === null ? styles.active : ""}`}
+          onClick={handleAllPhotos}
+        >
           <span>All Photos</span>
         </div>
         <div className={styles.item}>
@@ -65,7 +83,11 @@ export function FolderTree() {
           />
         )}
         {collections.map((col) => (
-          <div key={col.id} className={styles.item}>
+          <div
+            key={col.id}
+            className={`${styles.item} ${activeCollectionId === col.id ? styles.active : ""}`}
+            onClick={() => handleCollectionClick(col.id)}
+          >
             <span>{col.name}</span>
             <span className={styles.count}>{col.image_count}</span>
           </div>

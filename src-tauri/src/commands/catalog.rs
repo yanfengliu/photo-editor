@@ -44,9 +44,10 @@ pub async fn search_images(
     rating_min: Option<u8>,
     color_label: Option<String>,
     flag: Option<String>,
+    collection_id: Option<String>,
 ) -> Result<Vec<ImageRecord>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    crate::catalog::search::search_images(&db, &query, rating_min, color_label.as_deref(), flag.as_deref())
+    crate::catalog::search::search_images(&db, &query, rating_min, color_label.as_deref(), flag.as_deref(), collection_id.as_deref())
         .map_err(|e| e.to_string())
 }
 
