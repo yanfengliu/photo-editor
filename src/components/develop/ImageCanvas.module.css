@@ -2,4 +2,38 @@
 .canvas { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
 .processing { position: absolute; top: 12px; right: 12px; padding: 4px 12px; background: rgba(0,0,0,0.6); color: var(--text-secondary); border-radius: var(--radius-sm); font-size: var(--font-size-xs); pointer-events: none; }
 .zoomBadge { position: absolute; bottom: 12px; left: 12px; padding: 2px 8px; background: rgba(0,0,0,0.6); color: var(--text-secondary); border-radius: var(--radius-sm); font-size: var(--font-size-xs); pointer-events: none; }
-.cropOverlay { position: absolute; border: 2px solid rgba(255,255,255,0.8); box-shadow: 0 0 0 9999px rgba(0,0,0,0.5); pointer-events: none; z-index: 1; }
+
+/* Crop overlay — darkened region outside crop box */
+.cropOverlay { position: absolute; pointer-events: none; z-index: 1; }
+.cropDarken { position: absolute; background: rgba(0,0,0,0.55); }
+.cropBorder { position: absolute; border: 1.5px solid rgba(255,255,255,0.85); pointer-events: none; z-index: 2; }
+
+/* Rule of thirds grid */
+.cropGrid { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.cropGridH, .cropGridV { position: absolute; background: rgba(255,255,255,0.25); }
+.cropGridH { left: 0; right: 0; height: 1px; }
+.cropGridV { top: 0; bottom: 0; width: 1px; }
+
+/* Hit areas for dragging edges/corners */
+.cropHandle { position: absolute; z-index: 3; }
+.cropHandleN { left: 12px; right: 12px; top: -5px; height: 10px; cursor: ns-resize; }
+.cropHandleS { left: 12px; right: 12px; bottom: -5px; height: 10px; cursor: ns-resize; }
+.cropHandleW { top: 12px; bottom: 12px; left: -5px; width: 10px; cursor: ew-resize; }
+.cropHandleE { top: 12px; bottom: 12px; right: -5px; width: 10px; cursor: ew-resize; }
+.cropHandleNW { top: -6px; left: -6px; width: 16px; height: 16px; cursor: nwse-resize; }
+.cropHandleNE { top: -6px; right: -6px; width: 16px; height: 16px; cursor: nesw-resize; }
+.cropHandleSW { bottom: -6px; left: -6px; width: 16px; height: 16px; cursor: nesw-resize; }
+.cropHandleSE { bottom: -6px; right: -6px; width: 16px; height: 16px; cursor: nwse-resize; }
+.cropHandleMove { inset: 8px; cursor: move; }
+
+/* Corner tick marks */
+.cropCorner { position: absolute; z-index: 3; pointer-events: none; }
+.cropCorner::before, .cropCorner::after { content: ''; position: absolute; background: white; }
+.cropCornerNW::before { top: 0; left: 0; width: 16px; height: 2px; }
+.cropCornerNW::after  { top: 0; left: 0; width: 2px; height: 16px; }
+.cropCornerNE::before { top: 0; right: 0; width: 16px; height: 2px; }
+.cropCornerNE::after  { top: 0; right: 0; width: 2px; height: 16px; }
+.cropCornerSW::before { bottom: 0; left: 0; width: 16px; height: 2px; }
+.cropCornerSW::after  { bottom: 0; left: 0; width: 2px; height: 16px; }
+.cropCornerSE::before { bottom: 0; right: 0; width: 16px; height: 2px; }
+.cropCornerSE::after  { bottom: 0; right: 0; width: 2px; height: 16px; }

@@ -10,6 +10,7 @@ const LIVE_PREVIEW_MAX_SIZE = 1280;
 const SETTLED_PREVIEW_MAX_SIZE = 2048;
 const PREVIEW_BUCKET_SIZE = 256;
 const MAX_ZOOM = 16;
+const MIN_CROP_SIZE = 0.02; // Minimum crop dimension (2% of image)
 
 function quantizePreviewSize(size: number, maxSize: number): number {
   const bounded = Math.max(MIN_PREVIEW_SIZE, Math.min(maxSize, size));
@@ -21,6 +22,8 @@ interface ViewTransform {
   offsetX: number;
   offsetY: number;
 }
+
+type DragHandle = "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se" | "move";
 
 export function ImageCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -35,6 +38,9 @@ export function ImageCanvas() {
     persistEdits,
     isProcessing,
     isAdjusting,
+    updateParam,
+    startAdjusting,
+    stopAdjusting,
   } = useDevelopStore();
   const currentImageId = useDevelopStore((s) => s.currentImageId);
   const [previewSize, setPreviewSize] = useState(DEFAULT_PREVIEW_SIZE);
@@ -44,6 +50,14 @@ export function ImageCanvas() {
   const [view, setView] = useState<ViewTransform | null>(null);
   const isPanningRef = useRef(false);
   const panLastRef = useRef({ x: 0, y: 0 });
+
+  // Crop drag state
+  const [cropDrag, setCropDrag] = useState<{
+    handle: DragHandle;
+    startX: number;
+    startY: number;
+    startCrop: { x: number; y: number; w: number; h: number };
+  } | null>(null);
 
   // Reset view on image change
   useEffect(() => {
@@ -87,7 +101,6 @@ export function ImageCanvas() {
   }, [isAdjusting]);
 
   // --- Compute display transform ---
-  // fitScale: the scale that makes the image exactly fit the container
   const imageW = previewWidth || 1;
   const imageH = previewHeight || 1;
   const fitScale =
@@ -98,7 +111,6 @@ export function ImageCanvas() {
   const currentZoom = view?.zoom ?? 1;
   const displayScale = fitScale * currentZoom;
 
-  // Centered offset at zoom=1 (fit view)
   const centeredOffset = {
     x: (containerSize.w - imageW * fitScale) / 2,
     y: (containerSize.h - imageH * fitScale) / 2,
@@ -126,17 +138,15 @@ export function ImageCanvas() {
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
 
-      // Normalize deltaY across input devices
       let delta = e.deltaY;
-      if (e.deltaMode === 1) delta *= 33; // line mode → pixels
-      if (e.deltaMode === 2) delta *= rect.height; // page mode → pixels
+      if (e.deltaMode === 1) delta *= 33;
+      if (e.deltaMode === 2) delta *= rect.height;
 
       setView((prev) => {
         const prevZoom = prev?.zoom ?? 1;
         const raw = prevZoom * Math.pow(1.002, -delta);
         const newZoom = Math.min(MAX_ZOOM, Math.max(0.1, raw));
 
-        // Snap back to fit when zooming out through 1x
         if (newZoom <= 1.0 && prevZoom > 1.0 && delta > 0) return null;
         if (Math.abs(newZoom - prevZoom) < 0.001) return prev;
 
@@ -144,16 +154,13 @@ export function ImageCanvas() {
         const oldScale = fs * prevZoom;
         const newScale = fs * newZoom;
 
-        // Previous offset (centered position when at fit)
         const off = prev
           ? { x: prev.offsetX, y: prev.offsetY }
           : centeredOffsetRef.current;
 
-        // Image-space point under cursor
         const imgX = (mx - off.x) / oldScale;
         const imgY = (my - off.y) / oldScale;
 
-        // New offset keeps that point under cursor
         return {
           zoom: newZoom,
           offsetX: mx - imgX * newScale,
@@ -200,9 +207,103 @@ export function ImageCanvas() {
     ctx.putImageData(imageDataRef.current, 0, 0);
   }, [previewData, previewWidth, previewHeight]);
 
-  // --- Pan handlers ---
+  // --- Crop drag helpers ---
+  // Convert a container pixel delta to normalized [0,1] image delta
+  const pxToNorm = useCallback(
+    (dxPx: number, dyPx: number) => ({
+      dx: dxPx / (imageW * displayScale),
+      dy: dyPx / (imageH * displayScale),
+    }),
+    [imageW, imageH, displayScale]
+  );
+
+  const handleCropPointerDown = useCallback(
+    (handle: DragHandle, e: React.PointerEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      startAdjusting();
+      setCropDrag({
+        handle,
+        startX: e.clientX,
+        startY: e.clientY,
+        startCrop: {
+          x: editParams.crop_x,
+          y: editParams.crop_y,
+          w: editParams.crop_width,
+          h: editParams.crop_height,
+        },
+      });
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [editParams, startAdjusting]
+  );
+
+  const handleCropPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!cropDrag) return;
+      const { handle, startX, startY, startCrop } = cropDrag;
+      const { dx, dy } = pxToNorm(e.clientX - startX, e.clientY - startY);
+
+      let { x, y, w, h } = startCrop;
+
+      switch (handle) {
+        case "move":
+          x = Math.max(0, Math.min(1 - w, x + dx));
+          y = Math.max(0, Math.min(1 - h, y + dy));
+          break;
+        case "nw":
+          x = Math.max(0, Math.min(x + w - MIN_CROP_SIZE, x + dx));
+          y = Math.max(0, Math.min(y + h - MIN_CROP_SIZE, y + dy));
+          w = startCrop.x + startCrop.w - x;
+          h = startCrop.y + startCrop.h - y;
+          break;
+        case "ne":
+          w = Math.max(MIN_CROP_SIZE, Math.min(1 - x, w + dx));
+          y = Math.max(0, Math.min(y + h - MIN_CROP_SIZE, y + dy));
+          h = startCrop.y + startCrop.h - y;
+          break;
+        case "sw":
+          x = Math.max(0, Math.min(x + w - MIN_CROP_SIZE, x + dx));
+          w = startCrop.x + startCrop.w - x;
+          h = Math.max(MIN_CROP_SIZE, Math.min(1 - y, h + dy));
+          break;
+        case "se":
+          w = Math.max(MIN_CROP_SIZE, Math.min(1 - x, w + dx));
+          h = Math.max(MIN_CROP_SIZE, Math.min(1 - y, h + dy));
+          break;
+        case "n":
+          y = Math.max(0, Math.min(y + h - MIN_CROP_SIZE, y + dy));
+          h = startCrop.y + startCrop.h - y;
+          break;
+        case "s":
+          h = Math.max(MIN_CROP_SIZE, Math.min(1 - y, h + dy));
+          break;
+        case "w":
+          x = Math.max(0, Math.min(x + w - MIN_CROP_SIZE, x + dx));
+          w = startCrop.x + startCrop.w - x;
+          break;
+        case "e":
+          w = Math.max(MIN_CROP_SIZE, Math.min(1 - x, w + dx));
+          break;
+      }
+
+      updateParam("crop_x", parseFloat(x.toFixed(4)));
+      updateParam("crop_y", parseFloat(y.toFixed(4)));
+      updateParam("crop_width", parseFloat(w.toFixed(4)));
+      updateParam("crop_height", parseFloat(h.toFixed(4)));
+    },
+    [cropDrag, pxToNorm, updateParam]
+  );
+
+  const handleCropPointerUp = useCallback(() => {
+    if (!cropDrag) return;
+    setCropDrag(null);
+    stopAdjusting();
+  }, [cropDrag, stopAdjusting]);
+
+  // --- Pan handlers (only when not crop-dragging) ---
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if (!viewRef.current) return; // no pan at fit view
+    if (!viewRef.current) return;
     if (e.button !== 0 && e.button !== 1) return;
     e.preventDefault();
     isPanningRef.current = true;
@@ -226,7 +327,6 @@ export function ImageCanvas() {
     isPanningRef.current = false;
   }, []);
 
-  // Double-click resets to fit
   const handleDoubleClick = useCallback(() => {
     setView(null);
   }, []);
@@ -234,15 +334,30 @@ export function ImageCanvas() {
   const isZoomed = view !== null;
   const fineAngle = editParams.rotation_fine || 0;
 
-  // Compute the largest inscribed axis-aligned rectangle (same aspect ratio)
-  // inside the rotated image. For W×H rotated by θ, each corner (a,b) of the
-  // inscribed rect must satisfy: a·cosθ + b·sinθ ≤ W/2 AND a·sinθ + b·cosθ ≤ H/2.
-  // With same-aspect constraint a/b = W/H, the scale factor is:
-  //   s = min(W/(W·cosθ + H·sinθ), H/(W·sinθ + H·cosθ))
+  // --- Crop overlay geometry ---
+  const isCropped =
+    editParams.crop_x !== 0 ||
+    editParams.crop_y !== 0 ||
+    editParams.crop_width !== 1 ||
+    editParams.crop_height !== 1;
+  const showCrop = isCropped || cropDrag !== null;
+
+  // Crop box in container pixel coordinates
+  const cropLeft = offset.x + editParams.crop_x * imageW * displayScale;
+  const cropTop = offset.y + editParams.crop_y * imageH * displayScale;
+  const cropW = editParams.crop_width * imageW * displayScale;
+  const cropH = editParams.crop_height * imageH * displayScale;
+
+  // Image bounds in container coordinates
+  const imgLeft = offset.x;
+  const imgTop = offset.y;
+  const imgRight = offset.x + imageW * displayScale;
+  const imgBottom = offset.y + imageH * displayScale;
+
+  // Fine rotation overlay (inscribed rect)
   const absAngle = Math.abs(fineAngle * Math.PI / 180);
   const sinA = Math.sin(absAngle);
   const cosA = Math.cos(absAngle);
-
   let inscribedScale = 1;
   if (absAngle > 0.001 && imageW > 0 && imageH > 0) {
     inscribedScale = Math.min(
@@ -251,18 +366,13 @@ export function ImageCanvas() {
     );
   }
 
-  // The inscribed crop rect in display pixels
   const displayW = imageW * displayScale;
   const displayH = imageH * displayScale;
-  const cropW = displayW * inscribedScale;
-  const cropH = displayH * inscribedScale;
-
-  // Center of the image in container coordinates
+  const rotCropW = displayW * inscribedScale;
+  const rotCropH = displayH * inscribedScale;
   const imgCenterX = offset.x + displayW / 2;
   const imgCenterY = offset.y + displayH / 2;
 
-  // Build transform: translate to position, then translate to center, rotate, translate back
-  // This ensures rotation is around the image center
   const canvasTransform = fineAngle
     ? `translate(${offset.x}px, ${offset.y}px) translate(${displayW / 2}px, ${displayH / 2}px) rotate(${fineAngle}deg) translate(${-displayW / 2}px, ${-displayH / 2}px) scale(${displayScale})`
     : `translate(${offset.x}px, ${offset.y}px) scale(${displayScale})`;
@@ -271,7 +381,7 @@ export function ImageCanvas() {
     <div
       ref={containerRef}
       className={styles.container}
-      style={{ cursor: isZoomed ? "grab" : undefined }}
+      style={{ cursor: cropDrag ? undefined : isZoomed ? "grab" : undefined }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -286,17 +396,65 @@ export function ImageCanvas() {
           imageRendering: displayScale > 2 ? "pixelated" : undefined,
         }}
       />
-      {fineAngle !== 0 && (
+
+      {/* Interactive crop overlay */}
+      {showCrop && (
+        <>
+          {/* Darkened regions outside the crop box (4 rects) */}
+          {/* Top */}
+          <div className={styles.cropDarken} style={{ left: imgLeft, top: imgTop, width: imgRight - imgLeft, height: Math.max(0, cropTop - imgTop) }} />
+          {/* Bottom */}
+          <div className={styles.cropDarken} style={{ left: imgLeft, top: cropTop + cropH, width: imgRight - imgLeft, height: Math.max(0, imgBottom - (cropTop + cropH)) }} />
+          {/* Left */}
+          <div className={styles.cropDarken} style={{ left: imgLeft, top: cropTop, width: Math.max(0, cropLeft - imgLeft), height: cropH }} />
+          {/* Right */}
+          <div className={styles.cropDarken} style={{ left: cropLeft + cropW, top: cropTop, width: Math.max(0, imgRight - (cropLeft + cropW)), height: cropH }} />
+
+          {/* Crop border */}
+          <div className={styles.cropBorder} style={{ left: cropLeft, top: cropTop, width: cropW, height: cropH }}>
+            {/* Rule of thirds grid */}
+            <div className={styles.cropGrid}>
+              <div className={styles.cropGridH} style={{ top: "33.33%" }} />
+              <div className={styles.cropGridH} style={{ top: "66.67%" }} />
+              <div className={styles.cropGridV} style={{ left: "33.33%" }} />
+              <div className={styles.cropGridV} style={{ left: "66.67%" }} />
+            </div>
+
+            {/* Corner tick marks */}
+            <div className={`${styles.cropCorner} ${styles.cropCornerNW}`} />
+            <div className={`${styles.cropCorner} ${styles.cropCornerNE}`} />
+            <div className={`${styles.cropCorner} ${styles.cropCornerSW}`} />
+            <div className={`${styles.cropCorner} ${styles.cropCornerSE}`} />
+
+            {/* Drag handles — invisible hit areas */}
+            <div className={`${styles.cropHandle} ${styles.cropHandleN}`} onPointerDown={(e) => handleCropPointerDown("n", e)} onPointerMove={handleCropPointerMove} onPointerUp={handleCropPointerUp} onPointerCancel={handleCropPointerUp} />
+            <div className={`${styles.cropHandle} ${styles.cropHandleS}`} onPointerDown={(e) => handleCropPointerDown("s", e)} onPointerMove={handleCropPointerMove} onPointerUp={handleCropPointerUp} onPointerCancel={handleCropPointerUp} />
+            <div className={`${styles.cropHandle} ${styles.cropHandleW}`} onPointerDown={(e) => handleCropPointerDown("w", e)} onPointerMove={handleCropPointerMove} onPointerUp={handleCropPointerUp} onPointerCancel={handleCropPointerUp} />
+            <div className={`${styles.cropHandle} ${styles.cropHandleE}`} onPointerDown={(e) => handleCropPointerDown("e", e)} onPointerMove={handleCropPointerMove} onPointerUp={handleCropPointerUp} onPointerCancel={handleCropPointerUp} />
+            <div className={`${styles.cropHandle} ${styles.cropHandleNW}`} onPointerDown={(e) => handleCropPointerDown("nw", e)} onPointerMove={handleCropPointerMove} onPointerUp={handleCropPointerUp} onPointerCancel={handleCropPointerUp} />
+            <div className={`${styles.cropHandle} ${styles.cropHandleNE}`} onPointerDown={(e) => handleCropPointerDown("ne", e)} onPointerMove={handleCropPointerMove} onPointerUp={handleCropPointerUp} onPointerCancel={handleCropPointerUp} />
+            <div className={`${styles.cropHandle} ${styles.cropHandleSW}`} onPointerDown={(e) => handleCropPointerDown("sw", e)} onPointerMove={handleCropPointerMove} onPointerUp={handleCropPointerUp} onPointerCancel={handleCropPointerUp} />
+            <div className={`${styles.cropHandle} ${styles.cropHandleSE}`} onPointerDown={(e) => handleCropPointerDown("se", e)} onPointerMove={handleCropPointerMove} onPointerUp={handleCropPointerUp} onPointerCancel={handleCropPointerUp} />
+            <div className={`${styles.cropHandle} ${styles.cropHandleMove}`} onPointerDown={(e) => handleCropPointerDown("move", e)} onPointerMove={handleCropPointerMove} onPointerUp={handleCropPointerUp} onPointerCancel={handleCropPointerUp} />
+          </div>
+        </>
+      )}
+
+      {/* Fine-rotation inscribed rect overlay (shown independently of crop) */}
+      {fineAngle !== 0 && !showCrop && (
         <div
-          className={styles.cropOverlay}
+          className={styles.cropBorder}
           style={{
-            left: imgCenterX - cropW / 2,
-            top: imgCenterY - cropH / 2,
-            width: cropW,
-            height: cropH,
+            left: imgCenterX - rotCropW / 2,
+            top: imgCenterY - rotCropH / 2,
+            width: rotCropW,
+            height: rotCropH,
+            pointerEvents: "none",
+            boxShadow: "0 0 0 9999px rgba(0,0,0,0.5)",
           }}
         />
       )}
+
       {isProcessing && <div className={styles.processing}>Processing...</div>}
       {isZoomed && (
         <div className={styles.zoomBadge}>

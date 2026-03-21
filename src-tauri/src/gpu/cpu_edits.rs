@@ -57,14 +57,14 @@ fn planckian_cie_xy(t: f32) -> (f32, f32) {
     let x = if t <= 4000.0 {
         -0.2661239e9 / (t * t * t) - 0.2343589e6 / (t * t) + 0.8776956e3 / t + 0.179910
     } else {
-        -3.0258469e9 / (t * t * t) + 2.1070379e6 / (t * t) + 0.2226347e3 / t + 0.240390
+        -3.0258469e9 / (t * t * t) + 2.107_038e6 / (t * t) + 0.2226347e3 / t + 0.240390
     };
     let y = if t <= 2222.0 {
-        -1.1063814 * x * x * x - 1.34811020 * x * x + 2.18555832 * x - 0.20219683
+        -1.1063814 * x * x * x - 1.348_110_2 * x * x + 2.185_558_3 * x - 0.20219683
     } else if t <= 4000.0 {
-        -0.9549476 * x * x * x - 1.37418593 * x * x + 2.09137015 * x - 0.16748867
+        -0.9549476 * x * x * x - 1.374_185_9 * x * x + 2.091_37 * x - 0.16748867
     } else {
-        3.0817580 * x * x * x - 5.87338670 * x * x + 3.75112997 * x - 0.37001483
+        3.081_758 * x * x * x - 5.873_387 * x * x + 3.751_129_9 * x - 0.37001483
     };
     (x, y)
 }
@@ -95,11 +95,9 @@ impl CpuEditProfile {
         let mut hsl_hue = [0.0f32; 8];
         let mut hsl_saturation = [0.0f32; 8];
         let mut hsl_luminance = [0.0f32; 8];
-        for i in 0..8 {
-            hsl_hue[i] = params.hsl_hue[i];
-            hsl_saturation[i] = params.hsl_saturation[i];
-            hsl_luminance[i] = params.hsl_luminance[i];
-        }
+        hsl_hue.copy_from_slice(&params.hsl_hue);
+        hsl_saturation.copy_from_slice(&params.hsl_saturation);
+        hsl_luminance.copy_from_slice(&params.hsl_luminance);
 
         Self {
             apply_white_balance: (params.temperature - 6500.0).abs() > 1.0 || params.tint.abs() > 0.001,

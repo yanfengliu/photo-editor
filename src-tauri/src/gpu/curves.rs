@@ -8,22 +8,22 @@ pub(crate) fn build_curve_lut(points: &[CurvePoint]) -> [f32; 256] {
 
     if n < 2 {
         // Identity
-        for i in 0..256 {
-            lut[i] = i as f32 / 255.0;
+        for (i, val) in lut.iter_mut().enumerate() {
+            *val = i as f32 / 255.0;
         }
         return lut;
     }
 
     // For exactly 2 points, use linear interpolation
     if n == 2 {
-        for i in 0..256 {
+        for (i, val) in lut.iter_mut().enumerate() {
             let t = i as f32 / 255.0;
             let dx = points[1].x - points[0].x;
             if dx.abs() < 1e-6 {
-                lut[i] = points[0].y;
+                *val = points[0].y;
             } else {
                 let frac = ((t - points[0].x) / dx).clamp(0.0, 1.0);
-                lut[i] = (points[0].y + frac * (points[1].y - points[0].y)).clamp(0.0, 1.0);
+                *val = (points[0].y + frac * (points[1].y - points[0].y)).clamp(0.0, 1.0);
             }
         }
         return lut;
@@ -71,16 +71,16 @@ pub(crate) fn build_curve_lut(points: &[CurvePoint]) -> [f32; 256] {
     }
 
     // Evaluate spline at each LUT entry
-    for i in 0..256 {
+    for (i, lut_val) in lut.iter_mut().enumerate() {
         let t = i as f32 / 255.0;
 
         // Clamp to curve range
         if t <= xs[0] {
-            lut[i] = ys[0].clamp(0.0, 1.0);
+            *lut_val = ys[0].clamp(0.0, 1.0);
             continue;
         }
         if t >= xs[n - 1] {
-            lut[i] = ys[n - 1].clamp(0.0, 1.0);
+            *lut_val = ys[n - 1].clamp(0.0, 1.0);
             continue;
         }
 
@@ -95,7 +95,7 @@ pub(crate) fn build_curve_lut(points: &[CurvePoint]) -> [f32; 256] {
 
         let dx = h[seg];
         if dx.abs() < 1e-10 {
-            lut[i] = ys[seg].clamp(0.0, 1.0);
+            *lut_val = ys[seg].clamp(0.0, 1.0);
             continue;
         }
 
@@ -110,7 +110,7 @@ pub(crate) fn build_curve_lut(points: &[CurvePoint]) -> [f32; 256] {
         let h11 = frac3 - frac2;
 
         let val = h00 * ys[seg] + h10 * dx * m[seg] + h01 * ys[seg + 1] + h11 * dx * m[seg + 1];
-        lut[i] = val.clamp(0.0, 1.0);
+        *lut_val = val.clamp(0.0, 1.0);
     }
 
     lut

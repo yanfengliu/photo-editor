@@ -102,6 +102,7 @@ impl BasicAdjustmentsPass {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn encode(
         &self,
         device: &wgpu::Device,
@@ -143,6 +144,6 @@ impl BasicAdjustmentsPass {
         });
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups((width + 15) / 16, (height + 15) / 16, 1);
+        pass.dispatch_workgroups(width.div_ceil(16), height.div_ceil(16), 1);
     }
 }

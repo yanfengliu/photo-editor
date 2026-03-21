@@ -20,7 +20,7 @@ pub struct GpuContext {
 }
 
 fn align_to(value: u32, alignment: u32) -> u32 {
-    if value % alignment == 0 { value } else { value + alignment - (value % alignment) }
+    if value.is_multiple_of(alignment) { value } else { value + alignment - (value % alignment) }
 }
 
 impl GpuContext {

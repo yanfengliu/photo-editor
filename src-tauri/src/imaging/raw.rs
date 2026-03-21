@@ -45,7 +45,7 @@ fn try_load_embedded_thumbnail(
     let raw_data = std::fs::read(path)?;
     match Export::export_thumbnail_data(&raw_data) {
         Ok((thumbnail_data, _orientation)) => {
-            let preview = image::load_from_memory(&thumbnail_data)?;
+            let preview = image::load_from_memory(thumbnail_data)?;
             Ok(Some(preview))
         }
         Err(_) => Ok(None),

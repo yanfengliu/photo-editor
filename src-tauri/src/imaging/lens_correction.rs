@@ -3,6 +3,7 @@ use super::lens_profiles::{interpolate_focal, DistortionCoeffs, CaCoeffs, Vignet
 
 /// Apply lens corrections to an RGBA image buffer.
 /// This should run BEFORE color/tone adjustments in the pipeline.
+#[allow(clippy::too_many_arguments)]
 pub fn apply_lens_correction(
     data: &[u8],
     width: u32,
@@ -141,6 +142,7 @@ pub fn apply_lens_correction(
 }
 
 /// Sample a single color channel with radial scaling (for CA correction)
+#[allow(clippy::too_many_arguments)]
 fn sample_channel(
     data: &[u8],
     w: usize,

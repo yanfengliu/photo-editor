@@ -125,10 +125,10 @@ pub fn find_profile_by_name(lens_name: &str) -> Option<&'static LensProfile> {
                 max_score = score;
             }
         }
-        if max_score > 0.5 {
-            if best.is_none() || max_score > best.unwrap().1 {
-                best = Some((profile, max_score));
-            }
+        if max_score > 0.5
+            && (best.is_none() || max_score > best.unwrap().1)
+        {
+            best = Some((profile, max_score));
         }
     }
 
@@ -268,7 +268,7 @@ fn parse_lens_element(reader: &mut Reader<&[u8]>) -> Option<LensProfile> {
 
                 match tag.as_str() {
                     "distortion" => {
-                        if attrs.get("model").map_or(false, |m| m == "ptlens") {
+                        if attrs.get("model").is_some_and(|m| m == "ptlens") {
                             if let Some(focal) = attrs.get("focal").and_then(|v| v.parse::<f64>().ok()) {
                                 let a = attrs.get("a").and_then(|v| v.parse().ok()).unwrap_or(0.0);
                                 let b = attrs.get("b").and_then(|v| v.parse().ok()).unwrap_or(0.0);
@@ -298,7 +298,7 @@ fn parse_lens_element(reader: &mut Reader<&[u8]>) -> Option<LensProfile> {
                         }
                     }
                     "vignetting" => {
-                        if attrs.get("model").map_or(false, |m| m == "pa") {
+                        if attrs.get("model").is_some_and(|m| m == "pa") {
                             if let Some(focal) = attrs.get("focal").and_then(|v| v.parse::<f64>().ok()) {
                                 let aperture = attrs.get("aperture").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
                                 let k1 = attrs.get("k1").and_then(|v| v.parse().ok()).unwrap_or(0.0);

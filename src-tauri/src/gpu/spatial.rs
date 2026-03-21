@@ -105,14 +105,14 @@ fn guided_filter(guide: &[f32], input: &[f32], w: usize, h: usize, radius: usize
 }
 
 /// Apply unsharp mask sharpening (spatial operation, needs full buffer)
-pub(crate) fn apply_sharpening_cpu(data: &mut Vec<u8>, width: u32, height: u32, amount: f32, radius: f32, detail: f32) {
+pub(crate) fn apply_sharpening_cpu(data: &mut [u8], width: u32, height: u32, amount: f32, radius: f32, detail: f32) {
     let w = width as usize;
     let h = height as usize;
     let r = radius.ceil() as i32;
     let strength = amount / 100.0;
     let threshold = (1.0 - detail / 100.0) * 0.1;
     let sigma_sq = radius * radius;
-    let source = data.clone();
+    let source = data.to_owned();
 
     let rows: Vec<Vec<u8>> = (0..h)
         .into_par_iter()
@@ -172,7 +172,7 @@ pub(crate) fn apply_sharpening_cpu(data: &mut Vec<u8>, width: u32, height: u32, 
 }
 
 /// Apply clarity (large-radius local contrast enhancement with Gaussian blur and halo control)
-pub(crate) fn apply_clarity_cpu(data: &mut Vec<u8>, width: u32, height: u32, clarity: f32) {
+pub(crate) fn apply_clarity_cpu(data: &mut [u8], width: u32, height: u32, clarity: f32) {
     let w = width as usize;
     let h = height as usize;
     let base_strength = clarity / 100.0;
@@ -181,7 +181,7 @@ pub(crate) fn apply_clarity_cpu(data: &mut Vec<u8>, width: u32, height: u32, cla
     let radius: i32 = 20;
     let step: i32 = 3; // sub-sample for performance
     let halo_limit = 0.15_f32;
-    let source = data.clone();
+    let source = data.to_owned();
 
     let rows: Vec<Vec<u8>> = (0..h)
         .into_par_iter()
@@ -254,13 +254,13 @@ pub(crate) fn apply_clarity_cpu(data: &mut Vec<u8>, width: u32, height: u32, cla
 ///
 /// Reference: Tomasi C., Manduchi R., "Bilateral Filtering for Gray
 /// and Color Images", ICCV 1998.
-pub(crate) fn apply_denoise_cpu(data: &mut Vec<u8>, width: u32, height: u32, lum_strength: f32, color_strength: f32) {
+pub(crate) fn apply_denoise_cpu(data: &mut [u8], width: u32, height: u32, lum_strength: f32, color_strength: f32) {
     let w = width as usize;
     let h = height as usize;
     if lum_strength < 0.5 && color_strength < 0.5 {
         return;
     }
-    let source = data.clone();
+    let source = data.to_owned();
 
     // --- Luminance denoising ---
     if lum_strength >= 0.5 {
@@ -325,7 +325,7 @@ pub(crate) fn apply_denoise_cpu(data: &mut Vec<u8>, width: u32, height: u32, lum
 
     // --- Chroma denoising (use the luma-denoised data as input) ---
     if color_strength >= 0.5 {
-        let chroma_source = data.clone();
+        let chroma_source = data.to_owned();
         let spatial_sigma = 4.0 + color_strength / 15.0;
         // Larger range sigma for chroma — eye is less sensitive to color noise
         let range_sigma = 0.10 + color_strength / 200.0;
@@ -410,12 +410,12 @@ pub(crate) fn apply_denoise_cpu(data: &mut Vec<u8>, width: u32, height: u32, lum
 /// Dark Channel Prior", CVPR 2009 (Best Paper).
 /// Refinement: He K., Sun J., Tang X., "Guided Image Filtering",
 /// IEEE TPAMI 35(6), 1397–1409, 2013.
-pub(crate) fn apply_dehaze_cpu(data: &mut Vec<u8>, width: u32, height: u32, dehaze: f32) {
+pub(crate) fn apply_dehaze_cpu(data: &mut [u8], width: u32, height: u32, dehaze: f32) {
     let w = width as usize;
     let h = height as usize;
     let omega = dehaze / 100.0; // [-1, 1]
     let patch_radius: i32 = 7; // 15×15 patch (He et al. recommend 15×15)
-    let source = data.clone();
+    let source = data.to_owned();
 
     // Step 1: Compute un-normalized dark channel for atmospheric light estimation
     //   DC(x) = min_{y∈Ω(x)} min_{c∈{r,g,b}} I^c(y)
@@ -423,7 +423,7 @@ pub(crate) fn apply_dehaze_cpu(data: &mut Vec<u8>, width: u32, height: u32, deha
         .into_par_iter()
         .flat_map(|y| {
             let mut row = vec![0.0f32; w];
-            for x in 0..w {
+            for (x, dark_val) in row.iter_mut().enumerate() {
                 let mut dark = 1.0f32;
                 for dy in -patch_radius..=patch_radius {
                     let sy = (y as i32 + dy).clamp(0, h as i32 - 1) as usize;
@@ -436,7 +436,7 @@ pub(crate) fn apply_dehaze_cpu(data: &mut Vec<u8>, width: u32, height: u32, deha
                         dark = dark.min(r.min(g).min(b));
                     }
                 }
-                row[x] = dark;
+                *dark_val = dark;
             }
             row
         })
@@ -471,7 +471,7 @@ pub(crate) fn apply_dehaze_cpu(data: &mut Vec<u8>, width: u32, height: u32, deha
         .into_par_iter()
         .flat_map(|y| {
             let mut row = vec![0.0f32; w];
-            for x in 0..w {
+            for (x, trans_val) in row.iter_mut().enumerate() {
                 let mut dc_norm = 1.0f32;
                 for dy in -patch_radius..=patch_radius {
                     let sy = (y as i32 + dy).clamp(0, h as i32 - 1) as usize;
@@ -484,7 +484,7 @@ pub(crate) fn apply_dehaze_cpu(data: &mut Vec<u8>, width: u32, height: u32, deha
                         dc_norm = dc_norm.min(nr.min(ng).min(nb));
                     }
                 }
-                row[x] = (1.0 - omega * dc_norm).max(0.1);
+                *trans_val = (1.0 - omega * dc_norm).max(0.1);
             }
             row
         })
@@ -543,7 +543,7 @@ pub(crate) fn apply_dehaze_cpu(data: &mut Vec<u8>, width: u32, height: u32, deha
 /// edge-aware, matching the approach used by RawTherapee's Shadows/Highlights
 /// module.
 pub(crate) fn apply_tone_regions_cpu(
-    data: &mut Vec<u8>,
+    data: &mut [u8],
     width: u32,
     height: u32,
     highlights: f32,

@@ -11,7 +11,7 @@ vi.mock("../../api/processing", () => {
     hsl_hue: [0, 0, 0, 0, 0, 0, 0, 0],
     hsl_saturation: [0, 0, 0, 0, 0, 0, 0, 0],
     hsl_luminance: [0, 0, 0, 0, 0, 0, 0, 0],
-    sharpening_amount: 0, sharpening_radius: 1.0, clarity: 0,
+    sharpening_amount: 0, sharpening_radius: 1.0, sharpening_detail: 25, clarity: 0,
     denoise_luminance: 0, denoise_color: 0, denoise_ai: false,
     dehaze: 0, vignette_amount: 0, grain_amount: 0, grain_size: 25,
     crop_x: 0, crop_y: 0, crop_width: 1, crop_height: 1,

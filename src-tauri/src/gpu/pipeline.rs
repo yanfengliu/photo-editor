@@ -34,7 +34,7 @@ fn needs_crop_rotation(params: &EditParams) -> bool {
 
 /// Apply 90-degree rotation to RGBA buffer. Returns (new_data, new_width, new_height).
 fn rotate_90_steps(data: &[u8], width: u32, height: u32, rotation: i32) -> (Vec<u8>, u32, u32) {
-    let steps = ((rotation % 360 + 360) % 360) / 90;
+    let steps = rotation.rem_euclid(360) / 90;
     if steps == 0 {
         return (data.to_vec(), width, height);
     }
@@ -226,10 +226,7 @@ fn apply_lens_correction_step(
                 .and_then(|name| lens_profiles::find_profile_by_name(name))
         });
 
-    let profile = match profile {
-        Some(p) => p,
-        None => return None,
-    };
+    let profile = profile?;
 
     let focal = lens_meta
         .and_then(|m| m.focal_length)
