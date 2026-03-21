@@ -90,7 +90,7 @@ export function CropRotationPanel() {
   const activeRatio = cropAspectRatio;
 
   return (
-    <CollapsibleSection title="Crop & Rotate" defaultOpen={false}>
+    <CollapsibleSection title="Crop & Rotate" defaultOpen={false} onToggle={(open) => { if (!open) setCropAspectRatio(null); }}>
       <div className={styles.section}>
         <h4 className={styles.sub}>Rotation</h4>
         <div className={styles.rotateButtons}>
